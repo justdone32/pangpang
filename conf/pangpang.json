@@ -1,0 +1,89 @@
+{
+    "daemon": false,
+    "host": "127.0.0.1",
+    "port": 9000,
+    "ssl": {
+        "enable": false,
+        "cert": "",
+        "key": ""
+    },
+    "root": "html",
+    "default_content_type": "text/html",
+    "max_headers_size": 8192,
+    "max_body_size": 1048567,
+    "timeout": 60,
+    "route": [{
+            "pattern": "/hello",
+            "module": "mod/hello.so",
+            "cache": {
+                "enable": true,
+                "expires": 300,
+                "size": 30
+            }
+        },
+        {
+            "pattern": "/form",
+            "module": "mod/form.so",
+            "cache": {
+                "enable": false,
+                "expires": 300,
+                "size": 30
+            }
+        }
+    ],
+    "session": {
+        "enable": false,
+        "host": "127.0.0.1",
+        "port": 6379
+    },
+    "static_server": {
+        "enable": true,
+        "mime": [{
+                "extension": "html",
+                "content_type": "text/html"
+            }, {
+                "extension": "txt",
+                "content_type": "text/plain"
+            }, {
+                "extension": "js",
+                "content_type": "application/x-javascript"
+            },
+            {
+                "extension": "css",
+                "content_type": "text/css"
+            },
+            {
+                "extension": "jpg",
+                "content_type": "image/jpeg"
+            },
+            {
+                "extension": "jpeg",
+                "content_type": "image/jpeg"
+            },
+            {
+                "extension": "gif",
+                "content_type": "image/gif"
+            },
+            {
+                "extension": "png",
+                "content_type": "image/png"
+            },
+            {
+                "extension": "ico",
+                "content_type": "image/x-icon"
+            },
+            {
+                "extension": "json",
+                "content_type": "application/json"
+            },
+            {
+                "extension": "zip",
+                "content_type": "application/zip"
+            },
+            {
+                "extension": "*",
+                "content_type": "application/octet-stream"
+            }
+        ]
+    }
+}
