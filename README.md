@@ -33,8 +33,8 @@ extern "C" void destroy(hi::servlet* p) {
 ## cpp compile
 
 ```
-g++ -std=c++11 -I/usr/local/nginx/include  -shared -fPIC hello.cpp -o hello.so
-install hello.so /usr/local/nginx/hi
+g++ -std=c++11 -I/usr/local/pangpang/include  -shared -fPIC hello.cpp -o hello.so
+install hello.so /usr/local/pangpang/mod
 
 ```
 
