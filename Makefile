@@ -5,6 +5,8 @@ CC=g++
 CXXFLAGS=-std=c++11 -O3 -Wall -Isrc/inc -Isrc/lib `pkg-config --cflags hiredis  libevent_openssl openssl`
 LDLIBS=`pkg-config --libs hiredis libevent_openssl openssl` -lpthread -ldl
 
+PREFIX=/usr/local/pangpang
+
 all:$(PROJECT)
 
 $(PROJECT):$(OBJ)
@@ -14,4 +16,16 @@ clean:
 	rm -f $(PROJECT) $(OBJ)
 
 install:
-	@echo install
+	test -d $(PREFIX) || mkdir -p $(PREFIX)
+	test -d $(PREFIX)/include || mkdir -p $(PREFIX)/include
+	test -d $(PREFIX)/bin || mkdir -p $(PREFIX)/bin
+	test -d $(PREFIX)/html || mkdir -p $(PREFIX)/html
+	test -d $(PREFIX)/logs || mkdir -p $(PREFIX)/logs
+	test -d $(PREFIX)/conf || mkdir -p $(PREFIX)/conf
+	test -d $(PREFIX)/mod || mkdir -p $(PREFIX)/mod
+	test -d $(PREFIX)/temp || mkdir -p $(PREFIX)/temp
+	cp src/inc/*.hpp $(PREFIX)/include
+	install bin/pangpang $(PREFIX)/bin
+	install conf/pangpang.json $(PREFIX)/conf
+	install html/index.html $(PREFIX)/html
+	cp systemctl/pangpang.service /etc/systemd/system

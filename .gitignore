@@ -32,3 +32,5 @@
 *.app
 /bin/pangpang
 /nbproject/
+/temp/*.bin
+/logs/pangpang.pid

@@ -1,5 +1,5 @@
 {
-    "daemon": false,
+    "daemon": true,
     "host": "127.0.0.1",
     "port": 9000,
     "ssl": {
@@ -7,8 +7,6 @@
         "cert": "",
         "key": ""
     },
-    "root": "html",
-    "default_content_type": "text/html",
     "max_headers_size": 8192,
     "max_body_size": 1048567,
     "timeout": 60,
@@ -30,14 +28,27 @@
                 "size": 30
             }
         }
+        ,
+        {
+            "pattern": "/session",
+            "module": "mod/session.so",
+            "cache": {
+                "enable": false,
+                "expires": 300,
+                "size": 30
+            }
+        }
     ],
     "session": {
-        "enable": false,
+        "enable": true,
         "host": "127.0.0.1",
-        "port": 6379
+        "port": 6379,
+        "expires": 600
     },
     "static_server": {
         "enable": true,
+        "root": "html",
+        "default_content_type": "text/html",
         "mime": [{
                 "extension": "html",
                 "content_type": "text/html"

@@ -42,14 +42,14 @@
 #include <unordered_map>
 
 
-
-#include "inc/servlet.hpp"
 #include "inc/request.hpp"
 #include "inc/response.hpp"
+#include "inc/servlet.hpp"
 #include "lib/module_class.hpp"
 #include "lib/lrucache.hpp"
 #include "lib/redis.hpp"
 #include "lib/json11.hpp"
+#include "lib/param.hpp"
 
 
 #define SESSION_ID_NAME "SESSIONID"
@@ -84,7 +84,7 @@ static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
         CONTENT_TYPE = "text/html",
         CONFIG_FILE = "conf/pangpang.json";
 
-static size_t MAX_HEADERS_SIZE = 8192, MAX_BODY_SIZE = 1048567;
+static size_t MAX_HEADERS_SIZE = 8192, MAX_BODY_SIZE = 1048567, SESSION_EXPIRES = 600;
 static json11::Json CONFIG;
 static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
 static std::unordered_map<std::string, std::string> MIME;
@@ -93,7 +93,7 @@ static std::shared_ptr<hi::redis> REDIS;
 static bool initailize_config(const std::string& path);
 static void signal_normal_cb(int sig);
 static void generic_request_handler(struct evhttp_request *req, void *arg);
-
+static void update_cb(evutil_socket_t fd, short ev, void *arg);
 
 static void *my_zeroing_malloc(size_t howmuch);
 static void ssl_setup();
@@ -109,6 +109,7 @@ static bool is_dir(const std::string& s);
 static void read_file(const std::string& path, std::string& out);
 static const std::string& content_type(const std::string& path);
 static std::string md5(const std::string& str);
+static std::string random_string(const std::string& s);
 
 int main(int argc, char** argv) {
     if (!initailize_config(CONFIG_FILE)) {
@@ -120,9 +121,12 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
+    {
+        std::ofstream pid_file("logs/pangpang.pid");
+        pid_file << getpid();
+    }
 
     BASE = event_base_new();
-
     SERVER = evhttp_new(BASE);
 
 
@@ -137,6 +141,7 @@ int main(int argc, char** argv) {
                 SSL_CTX_free(CTX);
             }
             PLUGIN.clear();
+            MIME.clear();
             return 0;
         }
     }
@@ -160,6 +165,13 @@ int main(int argc, char** argv) {
     signal(SIGQUIT, signal_normal_cb);
     signal(SIGKILL, signal_normal_cb);
 
+    struct event ev_update;
+    event_assign(&ev_update, BASE, -1, EV_PERSIST, update_cb, 0);
+    struct timeval tv;
+    evutil_timerclear(&tv);
+    tv.tv_sec = 300;
+    event_add(&ev_update, &tv);
+
     event_base_dispatch(BASE);
     evhttp_free(SERVER);
     if (ECDH) {
@@ -169,6 +181,7 @@ int main(int argc, char** argv) {
         SSL_CTX_free(CTX);
     }
     PLUGIN.clear();
+    MIME.clear();
 
     return 0;
 }
@@ -187,8 +200,6 @@ static bool initailize_config(const std::string& path) {
                 ENABLE_SSL = CONFIG["ssl"]["enable"].bool_value();
                 CERT_CERTIFICATE_FILE = CONFIG["ssl"]["cert"].string_value();
                 CERT_PRIVATE_KEY_FILE = CONFIG["ssl"]["key"].string_value();
-                ROOT = CONFIG["root"].string_value();
-                CONTENT_TYPE = CONFIG["default_content_type"].string_value();
                 MAX_HEADERS_SIZE = static_cast<size_t> (CONFIG["max_headers_size"].number_value());
                 MAX_BODY_SIZE = static_cast<size_t> (CONFIG["max_body_size"].number_value());
                 TIMEOUT = CONFIG["timeout"].int_value();
@@ -204,6 +215,8 @@ static bool initailize_config(const std::string& path) {
                 }
                 ENABLE_STATIC_SERVER = CONFIG["static_server"]["enable"].bool_value();
                 if (ENABLE_STATIC_SERVER) {
+                    ROOT = CONFIG["static_server"]["root"].string_value();
+                    CONTENT_TYPE = CONFIG["static_server"]["default_content_type"].string_value();
                     for (auto &item : CONFIG["static_server"]["mime"].array_items()) {
                         MIME[item["extension"].string_value()] = item["content_type"].string_value();
                     }
@@ -212,12 +225,21 @@ static bool initailize_config(const std::string& path) {
                 if (ENABLE_SESSION) {
                     REDIS_HOST = CONFIG["session"]["host"].string_value();
                     REDIS_PORT = CONFIG["session"]["port"].int_value();
+                    REDIS = std::move(std::make_shared<hi::redis>());
+                    REDIS->connect(REDIS_HOST, REDIS_PORT);
+                    if (!REDIS->is_connected()) {
+                        ENABLE_SESSION = false;
+                    }
                 }
                 return true;
             }
         }
     }
     return false;
+}
+
+static void update_cb(evutil_socket_t fd, short ev, void *arg) {
+
 }
 
 static void *my_zeroing_malloc(size_t howmuch) {
@@ -378,6 +400,51 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 for (struct evkeyval *header = ev_input_headers->tqh_first; header; header = header->next.tqe_next) {
                     req.headers[header->key] = header->value;
                 }
+                const char* cookie = evhttp_find_header(ev_input_headers, "Cookie");
+                if (cookie)hi::parser_param(cookie, req.cookies, '&', '=');
+                const char* input_content_type = evhttp_find_header(ev_input_headers, "Content-Type");
+                struct evbuffer *buf = evhttp_request_get_input_buffer(ev_req);
+                size_t buf_size = evbuffer_get_length(buf);
+                if (buf_size && buf_size <= MAX_BODY_SIZE) {
+                    char buf_data [buf_size];
+                    size_t n = evbuffer_remove(buf, buf_data, buf_size);
+                    if (n >= 0) {
+                        std::string input_body(buf_data, n);
+                        if (strcmp("application/x-www-form-urlencoded", input_content_type) == 0) {
+                            hi::parser_param(input_body, req.form);
+                        } else {
+                            std::string temp_dir = "temp", temp_file = temp_dir + "/" + random_string(req.client).append(".bin");
+                            if (is_dir(temp_dir) || mkdir(temp_dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0) {
+                                std::ofstream temp(temp_file, std::fstream::binary);
+                                temp << input_body;
+                                req.form["input_body_file_path"] = temp_file;
+                            }
+                        }
+                    }
+                }
+                std::string SESSION_ID_VALUE;
+                if (ENABLE_SESSION) {
+                    if (req.cookies.find(SESSION_ID_NAME) != req.cookies.end()) {
+                        SESSION_ID_VALUE = req.cookies[SESSION_ID_NAME ];
+                        if (!REDIS->exists(SESSION_ID_VALUE)) {
+                            REDIS->hset(SESSION_ID_VALUE, SESSION_ID_NAME, SESSION_ID_VALUE);
+                            REDIS->expire(SESSION_ID_VALUE, SESSION_EXPIRES);
+                            res.session[SESSION_ID_NAME] = SESSION_ID_VALUE;
+                        } else {
+                            REDIS->hgetall(SESSION_ID_VALUE, req.session);
+                        }
+                    } else {
+                        std::string session_cookie_string(SESSION_ID_NAME);
+                        session_cookie_string.append("=")
+                                .append(random_string(req.client))
+                                .append(";Path=/;");
+                        const char* host = evhttp_uri_get_host(ev_uri);
+                        if (host) {
+                            session_cookie_string.append("Domain=").append(host);
+                        }
+                        evhttp_add_header(ev_output_headers, "Set-Cookie", session_cookie_string.c_str());
+                    }
+                }
                 instance->handler(req, res);
                 for (auto&header : res.headers) {
                     evhttp_add_header(ev_output_headers, header.first.c_str(), header.second.c_str());
@@ -391,7 +458,9 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                     cache_new_ele.t = time(NULL);
                     item->cache->put(md5_key, cache_new_ele);
                 }
-
+                if (ENABLE_SESSION&&!SESSION_ID_VALUE.empty()) {
+                    REDIS->hmset(SESSION_ID_VALUE, res.session);
+                }
             }
             is_dynamic_module = true;
             break;
@@ -406,9 +475,14 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 res.content = "<p style='text-align:center;margin:100px;'>403 Forbidden</p>";
                 res.status = 403;
             } else if (S_ISREG(st.st_mode)) {
-                read_file(full_path, res.content);
-                res.headers.find("Content-Type")->second = content_type(full_path);
-                res.status = 200;
+                int file = open(full_path.c_str(), O_RDONLY);
+                evbuffer_add_file(ev_res, file, 0, st.st_size);
+                evhttp_add_header(evhttp_request_get_output_headers(ev_req), "Content-Type", content_type(full_path).c_str());
+                evhttp_send_reply(ev_req, 200, "OK", ev_res);
+                return;
+                //                read_file(full_path, res.content);
+                //                res.headers.find("Content-Type")->second = content_type(full_path);
+                //                res.status = 200;
             }
         }
     }
@@ -461,4 +535,10 @@ static std::string md5(const std::string& str) {
     }
 
     return std::string((char*) tmp, 32);
+}
+
+static std::string random_string(const std::string& s) {
+    time_t now = time(NULL);
+    char* now_str = ctime(&now);
+    return md5(s + now_str);
 }
