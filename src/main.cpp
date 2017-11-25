@@ -134,17 +134,6 @@ int main(int argc, char** argv) {
 
     if (ENABLE_SSL) {
         if (!initailize_ssl(CTX, ECDH, SERVER, CERT_CERTIFICATE_FILE.c_str(), CERT_PRIVATE_KEY_FILE.c_str())) {
-            //            evhttp_free(SERVER);
-            //            event_base_free(BASE);
-            //            if (ECDH) {
-            //                EC_KEY_free(ECDH);
-            //            }
-            //            if (CTX) {
-            //                SSL_CTX_free(CTX);
-            //            }
-            //            PLUGIN.clear();
-            //            MIME.clear();
-            //            remove("logs/pangpang.pid");
             goto stop_server;
         }
     }
@@ -176,9 +165,12 @@ int main(int argc, char** argv) {
     event_add(&ev_update, &tv);
 
     event_base_dispatch(BASE);
+    event_del(&ev_update);
+
 
 stop_server:
     evhttp_free(SERVER);
+    event_base_free(BASE);
     if (ECDH) {
         EC_KEY_free(ECDH);
     }
