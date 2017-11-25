@@ -32,5 +32,8 @@
 *.app
 /bin/pangpang
 /nbproject/
-/temp/*.bin
+/temp/*.jpg
+/temp/*.png
+/temp/*.txt
+/temp/*.html
 /logs/pangpang.pid

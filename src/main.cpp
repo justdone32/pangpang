@@ -50,6 +50,7 @@
 #include "lib/redis.hpp"
 #include "lib/json11.hpp"
 #include "lib/param.hpp"
+#include "lib/MPFDParser-1.1.1/Parser.h"
 
 
 #define SESSION_ID_NAME "SESSIONID"
@@ -75,14 +76,15 @@ static SSL_CTX *CTX = 0;
 static EC_KEY *ECDH = 0;
 
 static bool DAEMON = false, ENABLE_SSL = false, ENABLE_STATIC_SERVER = false, ENABLE_SESSION = false;
-static std::string CERT_CERTIFICATE_FILE, CERT_PRIVATE_KEY_FILE;
-
 
 static int PORT = 9000, TIMEOUT = 60, REDIS_PORT = 6379;
 static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
         ROOT = "html",
         CONTENT_TYPE = "text/html",
-        CONFIG_FILE = "conf/pangpang.json";
+        CONFIG_FILE = "conf/pangpang.json",
+        CERT_CERTIFICATE_FILE,
+        CERT_PRIVATE_KEY_FILE,
+        TEMP_DIRECTORY = "temp";
 
 static size_t MAX_HEADERS_SIZE = 8192, MAX_BODY_SIZE = 1048567, SESSION_EXPIRES = 600;
 static json11::Json CONFIG;
@@ -200,6 +202,7 @@ static bool initailize_config(const std::string& path) {
                 ENABLE_SSL = CONFIG["ssl"]["enable"].bool_value();
                 CERT_CERTIFICATE_FILE = CONFIG["ssl"]["cert"].string_value();
                 CERT_PRIVATE_KEY_FILE = CONFIG["ssl"]["key"].string_value();
+                TEMP_DIRECTORY = CONFIG["temp_directory"].string_value();
                 MAX_HEADERS_SIZE = static_cast<size_t> (CONFIG["max_headers_size"].number_value());
                 MAX_BODY_SIZE = static_cast<size_t> (CONFIG["max_body_size"].number_value());
                 TIMEOUT = CONFIG["timeout"].int_value();
@@ -409,15 +412,42 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                     char buf_data [buf_size];
                     size_t n = evbuffer_remove(buf, buf_data, buf_size);
                     if (n >= 0) {
-                        std::string input_body(buf_data, n);
                         if (strcmp("application/x-www-form-urlencoded", input_content_type) == 0) {
-                            hi::parser_param(input_body, req.form);
-                        } else {
-                            std::string temp_dir = "temp", temp_file = temp_dir + "/" + random_string(req.client).append(".bin");
-                            if (is_dir(temp_dir) || mkdir(temp_dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0) {
-                                std::ofstream temp(temp_file, std::fstream::binary);
-                                temp << input_body;
-                                req.form["input_body_file_path"] = temp_file;
+                            struct evkeyvalq param_list;
+                            evhttp_parse_query_str(buf_data, &param_list);
+                            for (struct evkeyval* p = param_list.tqh_first; p; p = p->next.tqe_next) {
+                                req.form.insert(std::make_pair(p->key, p->value));
+                            }
+
+                        } else if (strstr(input_content_type, "multipart/form-data")&&(is_dir(TEMP_DIRECTORY) || mkdir(TEMP_DIRECTORY.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0)) {
+                            try {
+                                std::shared_ptr<MPFD::Parser> POSTParser(new MPFD::Parser());
+                                POSTParser->SetTempDirForFileUpload(TEMP_DIRECTORY);
+                                POSTParser->SetUploadedFilesStorage(MPFD::Parser::StoreUploadedFilesInFilesystem);
+                                POSTParser->SetMaxCollectedDataLength(MAX_BODY_SIZE);
+                                POSTParser->SetContentType(input_content_type);
+                                POSTParser->AcceptSomeData(buf_data, n);
+                                auto fields = POSTParser->GetFieldsMap();
+                                for (auto &item : fields) {
+                                    if (item.second->GetType() == MPFD::Field::TextType) {
+                                        req.form.insert(std::make_pair(item.first, item.second->GetTextTypeContent()));
+                                    } else {
+                                        std::string upload_file_name = item.second->GetFileName(), ext;
+                                        std::string::size_type p = upload_file_name.find_last_of(".");
+                                        if (p != std::string::npos) {
+                                            ext = upload_file_name.substr(p);
+                                        }
+                                        std::string temp_file = TEMP_DIRECTORY + "/" + random_string(req.client + item.second->GetFileName()).append(ext);
+                                        rename(item.second->GetTempFileName().c_str(), temp_file.c_str());
+                                        req.form.insert(std::make_pair(item.first, temp_file));
+                                    }
+                                }
+
+                            } catch (MPFD::Exception& err) {
+                                res.content = err.GetError();
+                                res.status = 500;
+                                is_dynamic_module = true;
+                                break;
                             }
                         }
                     }
@@ -477,12 +507,10 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
             } else if (S_ISREG(st.st_mode)) {
                 int file = open(full_path.c_str(), O_RDONLY);
                 evbuffer_add_file(ev_res, file, 0, st.st_size);
+                close(file);
                 evhttp_add_header(evhttp_request_get_output_headers(ev_req), "Content-Type", content_type(full_path).c_str());
                 evhttp_send_reply(ev_req, 200, "OK", ev_res);
                 return;
-                //                read_file(full_path, res.content);
-                //                res.headers.find("Content-Type")->second = content_type(full_path);
-                //                res.status = 200;
             }
         }
     }

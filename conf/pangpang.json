@@ -1,5 +1,5 @@
 {
-    "daemon": true,
+    "daemon": false,
     "host": "127.0.0.1",
     "port": 9000,
     "ssl": {
@@ -45,6 +45,7 @@
         "port": 6379,
         "expires": 600
     },
+    "temp_directory":"temp",
     "static_server": {
         "enable": true,
         "root": "html",
