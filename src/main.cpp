@@ -134,17 +134,18 @@ int main(int argc, char** argv) {
 
     if (ENABLE_SSL) {
         if (!initailize_ssl(CTX, ECDH, SERVER, CERT_CERTIFICATE_FILE.c_str(), CERT_PRIVATE_KEY_FILE.c_str())) {
-            evhttp_free(SERVER);
-            event_base_free(BASE);
-            if (ECDH) {
-                EC_KEY_free(ECDH);
-            }
-            if (CTX) {
-                SSL_CTX_free(CTX);
-            }
-            PLUGIN.clear();
-            MIME.clear();
-            return 0;
+            //            evhttp_free(SERVER);
+            //            event_base_free(BASE);
+            //            if (ECDH) {
+            //                EC_KEY_free(ECDH);
+            //            }
+            //            if (CTX) {
+            //                SSL_CTX_free(CTX);
+            //            }
+            //            PLUGIN.clear();
+            //            MIME.clear();
+            //            remove("logs/pangpang.pid");
+            goto stop_server;
         }
     }
 
@@ -175,6 +176,8 @@ int main(int argc, char** argv) {
     event_add(&ev_update, &tv);
 
     event_base_dispatch(BASE);
+
+stop_server:
     evhttp_free(SERVER);
     if (ECDH) {
         EC_KEY_free(ECDH);
@@ -184,6 +187,7 @@ int main(int argc, char** argv) {
     }
     PLUGIN.clear();
     MIME.clear();
+    remove("logs/pangpang.pid");
 
     return 0;
 }
@@ -336,6 +340,7 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
     const struct evhttp_uri *ev_uri = evhttp_request_get_evhttp_uri(ev_req);
     hi::request req;
     hi::response res;
+
     req.uri = evhttp_uri_get_path(ev_uri);
 
     bool is_dynamic_module = false;
@@ -368,8 +373,8 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                         , *ev_input_headers = evhttp_request_get_input_headers(ev_req);
                 req.client = ev_req->remote_host;
                 const char* param = evhttp_uri_get_query(ev_uri);
-                req.param = param ? param : "";
                 if (param) {
+                    req.param = param;
                     struct evkeyvalq param_list;
                     evhttp_parse_query_str(param, &param_list);
                     for (struct evkeyval* p = param_list.tqh_first; p; p = p->next.tqe_next) {
@@ -403,22 +408,23 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 for (struct evkeyval *header = ev_input_headers->tqh_first; header; header = header->next.tqe_next) {
                     req.headers[header->key] = header->value;
                 }
+
                 const char* cookie = evhttp_find_header(ev_input_headers, "Cookie");
                 if (cookie)hi::parser_param(cookie, req.cookies, '&', '=');
+
                 const char* input_content_type = evhttp_find_header(ev_input_headers, "Content-Type");
                 struct evbuffer *buf = evhttp_request_get_input_buffer(ev_req);
                 size_t buf_size = evbuffer_get_length(buf);
                 if (buf_size && buf_size <= MAX_BODY_SIZE) {
                     char buf_data [buf_size];
                     size_t n = evbuffer_remove(buf, buf_data, buf_size);
-                    if (n >= 0) {
+                    if (n > 0) {
                         if (strcmp("application/x-www-form-urlencoded", input_content_type) == 0) {
                             struct evkeyvalq param_list;
                             evhttp_parse_query_str(buf_data, &param_list);
                             for (struct evkeyval* p = param_list.tqh_first; p; p = p->next.tqe_next) {
                                 req.form.insert(std::make_pair(p->key, p->value));
                             }
-
                         } else if (strstr(input_content_type, "multipart/form-data")&&(is_dir(TEMP_DIRECTORY) || mkdir(TEMP_DIRECTORY.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0)) {
                             try {
                                 std::shared_ptr<MPFD::Parser> POSTParser(new MPFD::Parser());
@@ -452,6 +458,7 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                         }
                     }
                 }
+
                 std::string SESSION_ID_VALUE;
                 if (ENABLE_SESSION) {
                     if (req.cookies.find(SESSION_ID_NAME) != req.cookies.end()) {
