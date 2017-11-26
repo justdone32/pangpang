@@ -80,7 +80,7 @@ static bool DAEMON = false, ENABLE_SSL = false, ENABLE_STATIC_SERVER = false, EN
 static int PORT = 9000, TIMEOUT = 60, REDIS_PORT = 6379;
 static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
         ROOT = "html",
-        CONTENT_TYPE = "text/html",
+        DEFAULT_CONTENT_TYPE = "text/html",
         CONFIG_FILE = "conf/pangpang.json",
         CERT_CERTIFICATE_FILE,
         CERT_PRIVATE_KEY_FILE,
@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
     CB = generic_request_handler;
 
     evhttp_set_gencb(SERVER, CB, NULL);
-    evhttp_set_default_content_type(SERVER, CONTENT_TYPE.c_str());
+    evhttp_set_default_content_type(SERVER, DEFAULT_CONTENT_TYPE.c_str());
     evhttp_set_timeout(SERVER, TIMEOUT);
     evhttp_set_max_headers_size(SERVER, MAX_HEADERS_SIZE);
     evhttp_set_max_body_size(SERVER, MAX_BODY_SIZE);
@@ -215,7 +215,7 @@ static bool initailize_config(const std::string& path) {
                 ENABLE_STATIC_SERVER = CONFIG["static_server"]["enable"].bool_value();
                 if (ENABLE_STATIC_SERVER) {
                     ROOT = CONFIG["static_server"]["root"].string_value();
-                    CONTENT_TYPE = CONFIG["static_server"]["default_content_type"].string_value();
+                    DEFAULT_CONTENT_TYPE = CONFIG["static_server"]["default_content_type"].string_value();
                     for (auto &item : CONFIG["static_server"]["mime"].array_items()) {
                         MIME[item["extension"].string_value()] = item["content_type"].string_value();
                     }
