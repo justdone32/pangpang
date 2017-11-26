@@ -58,6 +58,9 @@ sudo apt-get install build-essential libpcre3-dev zlib1g-dev libssl-dev libhired
 # Installation
 `make`  and  `sudo make install` and `sudo systemctl daemon-reload` . prefix=`/usr/local/pangpang`.
 
+# Configure
+see `conf/pangpang.json`
+
 ## Run
 `sudo systemctl enable pangpang`
 
