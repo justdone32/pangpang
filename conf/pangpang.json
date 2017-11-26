@@ -27,8 +27,7 @@
                 "expires": 300,
                 "size": 30
             }
-        }
-        ,
+        },
         {
             "pattern": "/session",
             "module": "mod/session.so",
@@ -45,7 +44,7 @@
         "port": 6379,
         "expires": 600
     },
-    "temp_directory":"temp",
+    "temp_directory": "temp",
     "static_server": {
         "enable": true,
         "root": "html",
