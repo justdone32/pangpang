@@ -51,6 +51,7 @@
 #include "lib/json11.hpp"
 #include "lib/param.hpp"
 #include "lib/MPFDParser-1.1.1/Parser.h"
+#include "lib/datetime.hpp"
 
 
 #define SESSION_ID_NAME "SESSIONID"
@@ -504,10 +505,19 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 res.content = "<p style='text-align:center;margin:100px;'>403 Forbidden</p>";
                 res.status = 403;
             } else if (S_ISREG(st.st_mode)) {
+                const char* if_modified_since = evhttp_find_header(evhttp_request_get_input_headers(ev_req), "If-Modified-Since");
+                if (if_modified_since) {
+                    time_t if_modified_since_time = hi::parse_http_time((u_char*) if_modified_since, strlen(if_modified_since));
+                    if (if_modified_since_time == st.st_mtim.tv_sec) {
+                        evhttp_send_reply(ev_req, 304, NULL, ev_res);
+                        return;
+                    }
+                }
                 int file = open(full_path.c_str(), O_RDONLY);
                 evbuffer_add_file(ev_res, file, 0, st.st_size);
                 close(file);
                 evhttp_add_header(evhttp_request_get_output_headers(ev_req), "Content-Type", content_type(full_path).c_str());
+                evhttp_add_header(evhttp_request_get_output_headers(ev_req), "Last-Modified", hi::http_time(&st.st_mtim.tv_sec).c_str());
                 evhttp_send_reply(ev_req, 200, "OK", ev_res);
                 return;
             }
