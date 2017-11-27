@@ -118,7 +118,6 @@ static std::string random_string(const std::string& s);
 
 int main(int argc, char** argv) {
     if (!initailize_config(CONFIG_FILE)) {
-        std::cout << "initailize configure is failed.\n";
         exit(EXIT_FAILURE);
     }
 
@@ -206,15 +205,19 @@ static bool initailize_config(const std::string& path) {
                 MAX_BODY_SIZE = static_cast<size_t> (CONFIG["max_body_size"].number_value());
                 TIMEOUT = CONFIG["timeout"].int_value();
                 for (auto& item : CONFIG["route"].array_items()) {
-                    auto tmp = std::make_shared<route_ele_t>();
-                    tmp->regex.assign(item["pattern"].string_value(), std::regex::ECMAScript);
-                    tmp->module = std::move(std::make_shared<hi::module_class < hi::servlet >> (item["module"].string_value()));
-                    if (item["cache"]["enable"].bool_value()) {
-                        tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
-                        tmp->expires = static_cast<size_t> (item["cache"]["expires"].number_value());
+                    try {
+                        auto tmp = std::make_shared<route_ele_t>();
+                        tmp->regex.assign(item["pattern"].string_value(),
+                                std::regex::ECMAScript | std::regex::optimize);
+                        tmp->module = std::move(std::make_shared<hi::module_class < hi::servlet >> (item["module"].string_value()));
+                        if (item["cache"]["enable"].bool_value()) {
+                            tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
+                            tmp->expires = static_cast<size_t> (item["cache"]["expires"].number_value());
+                        }
+                        tmp->session = item["session"].bool_value();
+                        PLUGIN.push_back(std::move(tmp));
+                    } catch (std::regex_error& e) {
                     }
-                    tmp->session = item["session"].bool_value();
-                    PLUGIN.push_back(std::move(tmp));
                 }
                 ENABLE_STATIC_SERVER = CONFIG["static_server"]["enable"].bool_value();
                 if (ENABLE_STATIC_SERVER) {
