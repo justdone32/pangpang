@@ -55,6 +55,7 @@
 
 
 #define SESSION_ID_NAME "SESSIONID"
+#define PANGPANG  "pangpang/0.2.0"
 
 struct cache_ele_t {
     int status = 200;
@@ -67,6 +68,7 @@ struct route_ele_t {
     std::shared_ptr<hi::module_class<hi::servlet>> module;
     std::shared_ptr<hi::cache::lru_cache<std::string, cache_ele_t>> cache;
     size_t expires;
+    bool session;
 };
 
 typedef void (*CB_FUNC)(struct evhttp_request *, void *);
@@ -211,6 +213,7 @@ static bool initailize_config(const std::string& path) {
                         tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
                         tmp->expires = static_cast<size_t> (item["cache"]["expires"].number_value());
                     }
+                    tmp->session = item["session"].bool_value();
                     PLUGIN.push_back(std::move(tmp));
                 }
                 ENABLE_STATIC_SERVER = CONFIG["static_server"]["enable"].bool_value();
@@ -330,7 +333,10 @@ static void signal_normal_cb(int sig) {
 
 static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
     struct evbuffer *ev_res = evhttp_request_get_output_buffer(ev_req);
+    struct evkeyvalq *ev_output_headers = evhttp_request_get_output_headers(ev_req),
+            *ev_input_headers = evhttp_request_get_input_headers(ev_req);
     const struct evhttp_uri *ev_uri = evhttp_request_get_evhttp_uri(ev_req);
+
     hi::request req;
     hi::response res;
 
@@ -339,11 +345,21 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
     bool is_dynamic_module = false;
     for (auto&item : PLUGIN) {
         if (std::regex_match(req.uri, item->regex)) {
+
             std::string md5_key;
             if (item->cache) {
                 md5_key = md5(evhttp_request_get_uri(ev_req));
                 if (item->cache->exists(md5_key)) {
                     const cache_ele_t& cache_ele = item->cache->get(md5_key);
+                    const char* if_modified_since = evhttp_find_header(ev_input_headers, "If-Modified-Since");
+                    if (if_modified_since) {
+                        time_t if_modified_since_time = hi::parse_http_time((u_char*) if_modified_since, strlen(if_modified_since));
+                        if (if_modified_since_time == cache_ele.t) {
+                            evhttp_send_reply(ev_req, 304, "Not Modified", ev_res);
+                            return;
+                        }
+                    }
+
                     time_t now = time(NULL);
                     if (difftime(now, cache_ele.t) >= item->expires) {
                         item->cache->erase(md5_key);
@@ -352,8 +368,9 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                         res.status = cache_ele.status;
                         res.headers.find("Content-Type")->second = cache_ele.content_type;
                         res.status = cache_ele.status;
+
                         for (auto&header : res.headers) {
-                            evhttp_add_header(evhttp_request_get_output_headers(ev_req), header.first.c_str(), header.second.c_str());
+                            evhttp_add_header(ev_output_headers, header.first.c_str(), header.second.c_str());
                         }
                         is_dynamic_module = true;
                         break;
@@ -362,8 +379,6 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
             }
             auto instance = std::move(item->module->make_obj());
             if (instance) {
-                struct evkeyvalq *ev_output_headers = evhttp_request_get_output_headers(ev_req)
-                        , *ev_input_headers = evhttp_request_get_input_headers(ev_req);
                 req.client = ev_req->remote_host;
                 const char* param = evhttp_uri_get_query(ev_uri);
                 if (param) {
@@ -373,28 +388,33 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                     for (struct evkeyval* p = param_list.tqh_first; p; p = p->next.tqe_next) {
                         req.form.insert(std::make_pair(p->key, p->value));
                     }
+                    evhttp_clear_headers(&param_list);
                 }
-                const char* tmp = evhttp_find_header(ev_req->input_headers, "User-Agent");
-                req.user_agent = tmp ? tmp : "xxx";
+
+                const char* user_agent = evhttp_find_header(ev_req->input_headers, "User-Agent");
+                req.user_agent = user_agent ? user_agent : "xxx";
+
                 enum evhttp_cmd_type req_method = evhttp_request_get_command(ev_req);
                 switch (req_method) {
-                    case EVHTTP_REQ_GET:
-                        req.method = "GET";
+                    case EVHTTP_REQ_GET:req.method = "GET";
                         break;
-                    case EVHTTP_REQ_POST:
-                        req.method = "POST";
+                    case EVHTTP_REQ_POST:req.method = "POST";
                         break;
-                    case EVHTTP_REQ_HEAD:
-                        req.method = "HEAD";
+                    case EVHTTP_REQ_HEAD:req.method = "HEAD";
                         break;
-                    case EVHTTP_REQ_DELETE:
-                        req.method = "DELETE";
+                    case EVHTTP_REQ_DELETE:req.method = "DELETE";
                         break;
-                    case EVHTTP_REQ_PUT:
-                        req.method = "PUT";
+                    case EVHTTP_REQ_PUT:req.method = "PUT";
                         break;
-                    default:
-                        req.method = "unknown";
+                    case EVHTTP_REQ_OPTIONS:req.method = "OPTIONS";
+                        break;
+                    case EVHTTP_REQ_TRACE:req.method = "TRACE";
+                        break;
+                    case EVHTTP_REQ_CONNECT:req.method = "CONNECT";
+                        break;
+                    case EVHTTP_REQ_PATCH:req.method = "PATCH";
+                        break;
+                    default:req.method = "unknown";
                         break;
                 }
 
@@ -406,54 +426,54 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 if (cookie)hi::parser_param(cookie, req.cookies, '&', '=');
 
                 const char* input_content_type = evhttp_find_header(ev_input_headers, "Content-Type");
-                struct evbuffer *buf = evhttp_request_get_input_buffer(ev_req);
-                size_t buf_size = evbuffer_get_length(buf);
-                if (buf_size && buf_size <= MAX_BODY_SIZE) {
-                    char buf_data [buf_size];
+                if (input_content_type && req_method == EVHTTP_REQ_POST) {
+                    struct evbuffer *buf = evhttp_request_get_input_buffer(ev_req);
+                    size_t buf_size = evbuffer_get_length(buf);
+                    char buf_data[buf_size + 1];
                     size_t n = evbuffer_remove(buf, buf_data, buf_size);
-                    if (n > 0) {
-                        if (strcmp("application/x-www-form-urlencoded", input_content_type) == 0) {
-                            struct evkeyvalq param_list;
-                            evhttp_parse_query_str(buf_data, &param_list);
-                            for (struct evkeyval* p = param_list.tqh_first; p; p = p->next.tqe_next) {
-                                req.form.insert(std::make_pair(p->key, p->value));
-                            }
-                        } else if (strstr(input_content_type, "multipart/form-data")&&(is_dir(TEMP_DIRECTORY) || mkdir(TEMP_DIRECTORY.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0)) {
-                            try {
-                                std::shared_ptr<MPFD::Parser> POSTParser(new MPFD::Parser());
-                                POSTParser->SetTempDirForFileUpload(TEMP_DIRECTORY);
-                                POSTParser->SetUploadedFilesStorage(MPFD::Parser::StoreUploadedFilesInFilesystem);
-                                POSTParser->SetMaxCollectedDataLength(MAX_BODY_SIZE);
-                                POSTParser->SetContentType(input_content_type);
-                                POSTParser->AcceptSomeData(buf_data, n);
-                                auto fields = POSTParser->GetFieldsMap();
-                                for (auto &item : fields) {
-                                    if (item.second->GetType() == MPFD::Field::TextType) {
-                                        req.form.insert(std::make_pair(item.first, item.second->GetTextTypeContent()));
-                                    } else {
-                                        std::string upload_file_name = item.second->GetFileName(), ext;
-                                        std::string::size_type p = upload_file_name.find_last_of(".");
-                                        if (p != std::string::npos) {
-                                            ext = upload_file_name.substr(p);
-                                        }
-                                        std::string temp_file = TEMP_DIRECTORY + "/" + random_string(req.client + item.second->GetFileName()).append(ext);
-                                        rename(item.second->GetTempFileName().c_str(), temp_file.c_str());
-                                        req.form.insert(std::make_pair(item.first, temp_file));
+                    if (n > 0 && strcmp("application/x-www-form-urlencoded", input_content_type) == 0) {
+                        struct evkeyvalq param_list;
+                        evhttp_parse_query_str(buf_data, &param_list);
+                        for (struct evkeyval* p = param_list.tqh_first; p; p = p->next.tqe_next) {
+                            req.form.insert(std::make_pair(p->key, p->value));
+                        }
+                        evhttp_clear_headers(&param_list);
+                    } else if (n > 0 && strstr(input_content_type, "multipart/form-data")&&(is_dir(TEMP_DIRECTORY)
+                            || mkdir(TEMP_DIRECTORY.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0)) {
+                        try {
+                            std::shared_ptr<MPFD::Parser> POSTParser(new MPFD::Parser());
+                            POSTParser->SetTempDirForFileUpload(TEMP_DIRECTORY);
+                            POSTParser->SetUploadedFilesStorage(MPFD::Parser::StoreUploadedFilesInFilesystem);
+                            POSTParser->SetMaxCollectedDataLength(MAX_BODY_SIZE);
+                            POSTParser->SetContentType(input_content_type);
+                            POSTParser->AcceptSomeData(buf_data, n);
+                            auto fields = POSTParser->GetFieldsMap();
+                            for (auto &item : fields) {
+                                if (item.second->GetType() == MPFD::Field::TextType) {
+                                    req.form.insert(std::make_pair(item.first, item.second->GetTextTypeContent()));
+                                } else {
+                                    std::string upload_file_name = item.second->GetFileName(), ext;
+                                    std::string::size_type p = upload_file_name.find_last_of(".");
+                                    if (p != std::string::npos) {
+                                        ext = upload_file_name.substr(p);
                                     }
+                                    std::string temp_file = TEMP_DIRECTORY + "/" + random_string(req.client + item.second->GetFileName()).append(ext);
+                                    rename(item.second->GetTempFileName().c_str(), temp_file.c_str());
+                                    req.form.insert(std::make_pair(item.first, temp_file));
                                 }
-
-                            } catch (MPFD::Exception& err) {
-                                res.content = err.GetError();
-                                res.status = 500;
-                                is_dynamic_module = true;
-                                break;
                             }
+
+                        } catch (MPFD::Exception& err) {
+                            res.content = err.GetError();
+                            res.status = 500;
+                            is_dynamic_module = true;
+                            break;
                         }
                     }
                 }
 
                 std::string SESSION_ID_VALUE;
-                if (ENABLE_SESSION) {
+                if (item->session && ENABLE_SESSION) {
                     if (req.cookies.find(SESSION_ID_NAME) != req.cookies.end()) {
                         SESSION_ID_VALUE = req.cookies[SESSION_ID_NAME ];
                         if (!REDIS->exists(SESSION_ID_VALUE)) {
@@ -475,7 +495,9 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                         evhttp_add_header(ev_output_headers, "Set-Cookie", session_cookie_string.c_str());
                     }
                 }
+
                 instance->handler(req, res);
+
                 for (auto&header : res.headers) {
                     evhttp_add_header(ev_output_headers, header.first.c_str(), header.second.c_str());
                 }
@@ -487,8 +509,9 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                     cache_new_ele.content_type = res.headers.find("Content-Type")->second;
                     cache_new_ele.t = time(NULL);
                     item->cache->put(md5_key, cache_new_ele);
+                    evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&cache_new_ele.t).c_str());
                 }
-                if (ENABLE_SESSION&&!SESSION_ID_VALUE.empty()) {
+                if (item->session && ENABLE_SESSION&&!SESSION_ID_VALUE.empty()) {
                     REDIS->hmset(SESSION_ID_VALUE, res.session);
                 }
             }
@@ -509,20 +532,25 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 if (if_modified_since) {
                     time_t if_modified_since_time = hi::parse_http_time((u_char*) if_modified_since, strlen(if_modified_since));
                     if (if_modified_since_time == st.st_mtim.tv_sec) {
-                        evhttp_send_reply(ev_req, 304, NULL, ev_res);
+                        evhttp_send_reply(ev_req, 304, "Not Modified", ev_res);
                         return;
                     }
                 }
                 int file = open(full_path.c_str(), O_RDONLY);
+                if (file < 0) {
+                    evhttp_send_error(ev_req, 500, NULL);
+                    return;
+                }
                 evbuffer_add_file(ev_res, file, 0, st.st_size);
-                close(file);
-                evhttp_add_header(evhttp_request_get_output_headers(ev_req), "Content-Type", content_type(full_path).c_str());
-                evhttp_add_header(evhttp_request_get_output_headers(ev_req), "Last-Modified", hi::http_time(&st.st_mtim.tv_sec).c_str());
+                evhttp_add_header(ev_output_headers, "Content-Type", content_type(full_path).c_str());
+                evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&st.st_mtim.tv_sec).c_str());
                 evhttp_send_reply(ev_req, 200, "OK", ev_res);
                 return;
             }
         }
     }
+    evhttp_add_header(ev_output_headers, "Server", PANGPANG);
+    evhttp_add_header(ev_output_headers, "Connection", "keep-alive");
     evbuffer_add(ev_res, res.content.c_str(), res.content.size());
     evhttp_send_reply(ev_req, res.status, NULL, ev_res);
 

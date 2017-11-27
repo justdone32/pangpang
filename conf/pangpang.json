@@ -17,7 +17,8 @@
                 "enable": true,
                 "expires": 300,
                 "size": 30
-            }
+            },
+            "session": false
         },
         {
             "pattern": "/form",
@@ -26,7 +27,8 @@
                 "enable": false,
                 "expires": 300,
                 "size": 30
-            }
+            },
+            "session": false
         },
         {
             "pattern": "/session",
@@ -35,7 +37,8 @@
                 "enable": false,
                 "expires": 300,
                 "size": 30
-            }
+            },
+            "session": true
         }
     ],
     "session": {
