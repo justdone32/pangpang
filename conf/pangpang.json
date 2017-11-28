@@ -11,7 +11,7 @@
     "max_body_size": 1048567,
     "timeout": 60,
     "route": [{
-            "pattern": "/hello",
+            "pattern": "hello",
             "module": "mod/hello.so",
             "cache": {
                 "enable": true,
@@ -21,7 +21,7 @@
             "session": false
         },
         {
-            "pattern": "/form",
+            "pattern": "form",
             "module": "mod/form.so",
             "cache": {
                 "enable": false,
@@ -31,7 +31,7 @@
             "session": false
         },
         {
-            "pattern": "/session",
+            "pattern": "session",
             "module": "mod/session.so",
             "cache": {
                 "enable": false,

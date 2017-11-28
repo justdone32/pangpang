@@ -38,7 +38,6 @@
 #include <iostream>
 #include <functional>
 #include <map>
-#include <regex>
 #include <unordered_map>
 
 
@@ -52,10 +51,17 @@
 #include "lib/param.hpp"
 #include "lib/MPFDParser-1.1.1/Parser.h"
 #include "lib/datetime.hpp"
+#include "lib/cregex.hpp"
 
 
+
+
+
+#define PANGPANG        "pangpang/0.3.0"
+#define CONFIG_FILE     "conf/pangpang.json"
+#define PATTERN_FILE    "conf/pattern.conf"
+#define LOGS_FILE       "logs/pangpang.pid"
 #define SESSION_ID_NAME "SESSIONID"
-#define PANGPANG  "pangpang/0.2.0"
 
 struct cache_ele_t {
     int status = 200;
@@ -64,7 +70,7 @@ struct cache_ele_t {
 };
 
 struct route_ele_t {
-    std::regex regex;
+    std::shared_ptr<hi::cregex> cregex;
     std::shared_ptr<hi::module_class<hi::servlet>> module;
     std::shared_ptr<hi::cache::lru_cache<std::string, cache_ele_t>> cache;
     size_t expires;
@@ -84,13 +90,12 @@ static int PORT = 9000, TIMEOUT = 60, REDIS_PORT = 6379;
 static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
         ROOT = "html",
         DEFAULT_CONTENT_TYPE = "text/html",
-        CONFIG_FILE = "conf/pangpang.json",
         CERT_CERTIFICATE_FILE,
         CERT_PRIVATE_KEY_FILE,
         TEMP_DIRECTORY = "temp";
 
 static size_t MAX_HEADERS_SIZE = 8192, MAX_BODY_SIZE = 1048567, SESSION_EXPIRES = 600;
-static json11::Json CONFIG;
+
 static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
 static std::unordered_map<std::string, std::string> MIME;
 static std::shared_ptr<hi::redis> REDIS;
@@ -126,7 +131,7 @@ int main(int argc, char** argv) {
     }
 
     {
-        std::ofstream pid_file("logs/pangpang.pid");
+        std::ofstream pid_file(LOGS_FILE);
         pid_file << getpid();
     }
 
@@ -181,34 +186,44 @@ stop_server:
     }
     PLUGIN.clear();
     MIME.clear();
-    remove("logs/pangpang.pid");
+    remove(LOGS_FILE);
 
     return 0;
 }
 
 static bool initailize_config(const std::string& path) {
-    if (is_file(path)) {
+    if (is_file(CONFIG_FILE) && is_file(PATTERN_FILE)) {
         std::string json_content;
         read_file(path, json_content);
         if (!json_content.empty()) {
             std::string err;
-            CONFIG = json11::Json::parse(json_content, err);
+            json11::Json conf = json11::Json::parse(json_content, err);
             if (err.empty()) {
-                DAEMON = CONFIG["daemon"].bool_value();
-                HOST = CONFIG["host"].string_value();
-                PORT = CONFIG["port"].int_value();
-                ENABLE_SSL = CONFIG["ssl"]["enable"].bool_value();
-                CERT_CERTIFICATE_FILE = CONFIG["ssl"]["cert"].string_value();
-                CERT_PRIVATE_KEY_FILE = CONFIG["ssl"]["key"].string_value();
-                TEMP_DIRECTORY = CONFIG["temp_directory"].string_value();
-                MAX_HEADERS_SIZE = static_cast<size_t> (CONFIG["max_headers_size"].number_value());
-                MAX_BODY_SIZE = static_cast<size_t> (CONFIG["max_body_size"].number_value());
-                TIMEOUT = CONFIG["timeout"].int_value();
-                for (auto& item : CONFIG["route"].array_items()) {
-                    try {
+                DAEMON = conf["daemon"].bool_value();
+                HOST = conf["host"].string_value();
+                PORT = conf["port"].int_value();
+                ENABLE_SSL = conf["ssl"]["enable"].bool_value();
+                CERT_CERTIFICATE_FILE = conf["ssl"]["cert"].string_value();
+                CERT_PRIVATE_KEY_FILE = conf["ssl"]["key"].string_value();
+                TEMP_DIRECTORY = conf["temp_directory"].string_value();
+                MAX_HEADERS_SIZE = static_cast<size_t> (conf["max_headers_size"].number_value());
+                MAX_BODY_SIZE = static_cast<size_t> (conf["max_body_size"].number_value());
+                TIMEOUT = conf["timeout"].int_value();
+
+                std::ifstream is(PATTERN_FILE);
+                std::string line;
+                std::unordered_map<std::string, std::string> pattern;
+                while (std::getline(is, line)) {
+                    if (line.front() != ';' && !line.empty()) {
+                        hi::parser_param(line, pattern);
+                    }
+                }
+                for (auto& item : conf["route"].array_items()) {
+                    std::string pattern_name = item["pattern"].string_value(), pattern_value;
+                    if (pattern.find(pattern_name) != pattern.end()) {
+                        pattern_value = pattern[pattern_name];
                         auto tmp = std::make_shared<route_ele_t>();
-                        tmp->regex.assign(item["pattern"].string_value(),
-                                std::regex::ECMAScript | std::regex::optimize);
+                        tmp->cregex = std::move(std::make_shared<hi::cregex>(pattern_value, false));
                         tmp->module = std::move(std::make_shared<hi::module_class < hi::servlet >> (item["module"].string_value()));
                         if (item["cache"]["enable"].bool_value()) {
                             tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
@@ -216,21 +231,20 @@ static bool initailize_config(const std::string& path) {
                         }
                         tmp->session = item["session"].bool_value();
                         PLUGIN.push_back(std::move(tmp));
-                    } catch (std::regex_error& e) {
                     }
                 }
-                ENABLE_STATIC_SERVER = CONFIG["static_server"]["enable"].bool_value();
+                ENABLE_STATIC_SERVER = conf["static_server"]["enable"].bool_value();
                 if (ENABLE_STATIC_SERVER) {
-                    ROOT = CONFIG["static_server"]["root"].string_value();
-                    DEFAULT_CONTENT_TYPE = CONFIG["static_server"]["default_content_type"].string_value();
-                    for (auto &item : CONFIG["static_server"]["mime"].array_items()) {
+                    ROOT = conf["static_server"]["root"].string_value();
+                    DEFAULT_CONTENT_TYPE = conf["static_server"]["default_content_type"].string_value();
+                    for (auto &item : conf["static_server"]["mime"].array_items()) {
                         MIME[item["extension"].string_value()] = item["content_type"].string_value();
                     }
                 }
-                ENABLE_SESSION = CONFIG["session"]["enable"].bool_value();
+                ENABLE_SESSION = conf["session"]["enable"].bool_value();
                 if (ENABLE_SESSION) {
-                    REDIS_HOST = CONFIG["session"]["host"].string_value();
-                    REDIS_PORT = CONFIG["session"]["port"].int_value();
+                    REDIS_HOST = conf["session"]["host"].string_value();
+                    REDIS_PORT = conf["session"]["port"].int_value();
                     REDIS = std::move(std::make_shared<hi::redis>());
                     REDIS->connect(REDIS_HOST, REDIS_PORT);
                     if (!REDIS->is_connected()) {
@@ -321,7 +335,7 @@ static int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, con
 }
 
 static void signal_normal_cb(int sig) {
-    struct timeval delay = {3, 0};
+    struct timeval delay = {1, 0};
     switch (sig) {
         case SIGTERM:
         case SIGHUP:
@@ -347,8 +361,7 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
 
     bool is_dynamic_module = false;
     for (auto&item : PLUGIN) {
-        if (std::regex_match(req.uri, item->regex)) {
-
+        if (item->cregex->match(req.uri)) {
             std::string md5_key;
             if (item->cache) {
                 md5_key = md5(evhttp_request_get_uri(ev_req));

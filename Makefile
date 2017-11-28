@@ -27,5 +27,6 @@ install:
 	cp src/inc/*.hpp $(PREFIX)/include
 	install bin/pangpang $(PREFIX)/bin
 	install conf/pangpang.json $(PREFIX)/conf
+	install conf/pattern.conf $(PREFIX)/conf
 	install html/index.html $(PREFIX)/html
 	cp systemctl/pangpang.service /etc/systemd/system
