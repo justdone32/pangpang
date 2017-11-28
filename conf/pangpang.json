@@ -10,6 +10,9 @@
     "max_headers_size": 8192,
     "max_body_size": 1048567,
     "timeout": 60,
+    "gzip": true,
+    "gzip_min_size": 1024,
+    "gzip_level": -1,
     "route": [{
             "pattern": "hello",
             "module": "mod/hello.so",

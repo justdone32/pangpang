@@ -52,6 +52,7 @@
 #include "lib/MPFDParser-1.1.1/Parser.h"
 #include "lib/datetime.hpp"
 #include "lib/cregex.hpp"
+#include "lib/gzip.hpp"
 
 
 
@@ -84,9 +85,13 @@ static struct evhttp *SERVER = 0;
 static SSL_CTX *CTX = 0;
 static EC_KEY *ECDH = 0;
 
-static bool DAEMON = false, ENABLE_SSL = false, ENABLE_STATIC_SERVER = false, ENABLE_SESSION = false;
+static bool DAEMON = false,
+        ENABLE_SSL = false,
+        ENABLE_STATIC_SERVER = false,
+        ENABLE_SESSION = false,
+        ENABLE_GZIP = true;
 
-static int PORT = 9000, TIMEOUT = 60, REDIS_PORT = 6379;
+static int PORT = 9000, TIMEOUT = 60, REDIS_PORT = 6379, GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
 static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
         ROOT = "html",
         DEFAULT_CONTENT_TYPE = "text/html",
@@ -94,7 +99,10 @@ static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
         CERT_PRIVATE_KEY_FILE,
         TEMP_DIRECTORY = "temp";
 
-static size_t MAX_HEADERS_SIZE = 8192, MAX_BODY_SIZE = 1048567, SESSION_EXPIRES = 600;
+static size_t MAX_HEADERS_SIZE = 8192,
+        MAX_BODY_SIZE = 1048567,
+        SESSION_EXPIRES = 600,
+        GZIP_MIN_SIZE = 1024;
 
 static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
 static std::unordered_map<std::string, std::string> MIME;
@@ -251,6 +259,14 @@ static bool initailize_config(const std::string& path) {
                         ENABLE_SESSION = false;
                     }
                 }
+                ENABLE_GZIP = conf["gzip"].bool_value();
+                if (ENABLE_GZIP) {
+                    GZIP_MIN_SIZE = static_cast<size_t> (conf["gzip_min_size"].number_value());
+                    GZIP_LEVEL = conf["gzip_level"].int_value();
+                    if (GZIP_LEVEL < Z_DEFAULT_COMPRESSION || GZIP_LEVEL > Z_BEST_COMPRESSION) {
+                        GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
+                    }
+                }
                 return true;
             }
         }
@@ -380,7 +396,23 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                     if (difftime(now, cache_ele.t) >= item->expires) {
                         item->cache->erase(md5_key);
                     } else {
-                        res.content = cache_ele.content;
+                        const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding");
+                        if (gzip::is_compressed(cache_ele.content.c_str(), cache_ele.content.size())) {
+                            if (gzip_header) {
+                                res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
+                                res.content = cache_ele.content;
+                            } else {
+                                res.content = gzip::decompress(cache_ele.content.c_str(), cache_ele.content.size());
+                            }
+                        } else {
+                            if (gzip_header && ENABLE_GZIP && cache_ele.content.size() >= GZIP_MIN_SIZE) {
+                                res.content = gzip::compress(cache_ele.content.c_str(), cache_ele.content.size(), GZIP_LEVEL);
+                                res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
+                            } else {
+                                res.content = cache_ele.content;
+                            }
+                        }
+
                         res.status = cache_ele.status;
                         res.headers.find("Content-Type")->second = cache_ele.content_type;
                         res.status = cache_ele.status;
@@ -513,6 +545,14 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 }
 
                 instance->handler(req, res);
+
+                if (ENABLE_GZIP && res.content.size() >= GZIP_MIN_SIZE) {
+                    const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding");
+                    if (gzip_header) {
+                        res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
+                        res.content = gzip::compress(res.content.c_str(), res.content.size(), GZIP_LEVEL);
+                    }
+                }
 
                 for (auto&header : res.headers) {
                     evhttp_add_header(ev_output_headers, header.first.c_str(), header.second.c_str());

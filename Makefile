@@ -3,7 +3,7 @@ SRC=$(wildcard  src/lib/*.cpp src/lib/MPFDParser-1.1.1/*.cpp src/*.cpp)
 OBJ=$(patsubst %.cpp,%.o,$(SRC))
 CC=g++
 CXXFLAGS=-std=c++11 -O3 -Wall -Isrc/inc -Isrc/lib -Isrc/lib/MPFDParser-1.1.1 `pkg-config --cflags hiredis  libevent_openssl openssl`
-LDLIBS=`pkg-config --libs hiredis libevent_openssl openssl` -lpthread -ldl
+LDLIBS=`pkg-config --libs hiredis libevent_openssl openssl` -lz -lpthread -ldl
 
 PREFIX=/usr/local/pangpang
 
