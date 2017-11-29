@@ -58,11 +58,13 @@
 
 
 
-#define PANGPANG        "pangpang/0.3.0"
-#define CONFIG_FILE     "conf/pangpang.json"
-#define PATTERN_FILE    "conf/pattern.conf"
-#define LOGS_FILE       "logs/pangpang.pid"
-#define SESSION_ID_NAME "SESSIONID"
+#define PANGPANG                "pangpang/0.3.0"
+#define CONFIG_FILE             "conf/pangpang.json"
+#define PATTERN_FILE            "conf/pattern.conf"
+#define PID_FILE                "logs/pangpang.pid"
+#define LOGS_ACCESS_FILE        "logs/access.log"
+#define LOGS_ERROR_FILE         "logs/error.log"
+#define SESSION_ID_NAME         "SESSIONID"
 
 struct cache_ele_t {
     int status = 200;
@@ -91,8 +93,11 @@ static bool DAEMON = false,
         ENABLE_SESSION = false,
         ENABLE_GZIP = true;
 
-static int PORT = 9000, TIMEOUT = 60, REDIS_PORT = 6379, GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
-static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
+static int PORT = 9000, TIMEOUT = 60,
+        REDIS_PORT = 6379,
+        GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
+static std::string HOST = "127.0.0.1",
+        REDIS_HOST = "127.0.0.1",
         ROOT = "html",
         DEFAULT_CONTENT_TYPE = "text/html",
         CERT_CERTIFICATE_FILE,
@@ -102,7 +107,8 @@ static std::string HOST = "127.0.0.1", REDIS_HOST = "127.0.0.1",
 static size_t MAX_HEADERS_SIZE = 8192,
         MAX_BODY_SIZE = 1048567,
         SESSION_EXPIRES = 600,
-        GZIP_MIN_SIZE = 1024;
+        GZIP_MIN_SIZE = 1024,
+        GZIP_MAX_SIZE = 2048;
 
 static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
 static std::unordered_map<std::string, std::string> MIME;
@@ -139,7 +145,7 @@ int main(int argc, char** argv) {
     }
 
     {
-        std::ofstream pid_file(LOGS_FILE);
+        std::ofstream pid_file(PID_FILE);
         pid_file << getpid();
     }
 
@@ -194,7 +200,7 @@ stop_server:
     }
     PLUGIN.clear();
     MIME.clear();
-    remove(LOGS_FILE);
+    remove(PID_FILE);
 
     return 0;
 }
@@ -259,10 +265,11 @@ static bool initailize_config(const std::string& path) {
                         ENABLE_SESSION = false;
                     }
                 }
-                ENABLE_GZIP = conf["gzip"].bool_value();
+                ENABLE_GZIP = conf["gzip"]["enable"].bool_value();
                 if (ENABLE_GZIP) {
-                    GZIP_MIN_SIZE = static_cast<size_t> (conf["gzip_min_size"].number_value());
-                    GZIP_LEVEL = conf["gzip_level"].int_value();
+                    GZIP_MIN_SIZE = static_cast<size_t> (conf["gzip"]["min_size"].number_value());
+                    GZIP_MAX_SIZE = static_cast<size_t> (conf["gzip"]["max_size"].number_value());
+                    GZIP_LEVEL = conf["gzip"]["level"].int_value();
                     if (GZIP_LEVEL < Z_DEFAULT_COMPRESSION || GZIP_LEVEL > Z_BEST_COMPRESSION) {
                         GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
                     }
@@ -396,17 +403,20 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                     if (difftime(now, cache_ele.t) >= item->expires) {
                         item->cache->erase(md5_key);
                     } else {
-                        const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding");
-                        if (gzip::is_compressed(cache_ele.content.c_str(), cache_ele.content.size())) {
+                        const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding"),
+                                *content = cache_ele.content.c_str();
+                        size_t content_len = cache_ele.content.size();
+                        if (gzip::is_compressed(content, content_len)) {
                             if (gzip_header) {
                                 res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
                                 res.content = cache_ele.content;
                             } else {
-                                res.content = gzip::decompress(cache_ele.content.c_str(), cache_ele.content.size());
+                                res.content = gzip::decompress(content, content_len);
                             }
                         } else {
-                            if (gzip_header && ENABLE_GZIP && cache_ele.content.size() >= GZIP_MIN_SIZE) {
-                                res.content = gzip::compress(cache_ele.content.c_str(), cache_ele.content.size(), GZIP_LEVEL);
+
+                            if (gzip_header && ENABLE_GZIP && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MIN_SIZE) {
+                                res.content = gzip::compress(content, content_len, GZIP_LEVEL);
                                 res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
                             } else {
                                 res.content = cache_ele.content;
