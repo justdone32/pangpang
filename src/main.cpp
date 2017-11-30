@@ -2,6 +2,9 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
+#include <sched.h>
+#include <sys/sysinfo.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -84,6 +87,7 @@ typedef void (*CB_FUNC)(struct evhttp_request *, void *);
 static CB_FUNC CB = 0;
 static struct event_base *BASE = 0;
 static struct evhttp *SERVER = 0;
+static struct event EV_UPDATE;
 static SSL_CTX *CTX = 0;
 static EC_KEY *ECDH = 0;
 
@@ -91,7 +95,8 @@ static bool DAEMON = false,
         ENABLE_SSL = false,
         ENABLE_STATIC_SERVER = false,
         ENABLE_SESSION = false,
-        ENABLE_GZIP = true;
+        ENABLE_GZIP = true,
+        ENABLE_MULTIPROCESS = true;
 
 static int PORT = 9000, TIMEOUT = 60,
         REDIS_PORT = 6379,
@@ -108,7 +113,8 @@ static size_t MAX_HEADERS_SIZE = 8192,
         MAX_BODY_SIZE = 1048567,
         SESSION_EXPIRES = 600,
         GZIP_MIN_SIZE = 1024,
-        GZIP_MAX_SIZE = 2048;
+        GZIP_MAX_SIZE = 2048,
+        PROCESS_SIZE = 0;
 
 static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
 static std::unordered_map<std::string, std::string> MIME;
@@ -134,6 +140,9 @@ static void read_file(const std::string& path, std::string& out);
 static const std::string& content_type(const std::string& path);
 static std::string md5(const std::string& str);
 static std::string random_string(const std::string& s);
+static void forker(size_t nprocesses, struct event_base* base, struct evhttp* server);
+static void worker(struct event_base* base, struct evhttp* server);
+static size_t get_cpu_count();
 
 int main(int argc, char** argv) {
     if (!initailize_config(CONFIG_FILE)) {
@@ -178,15 +187,25 @@ int main(int argc, char** argv) {
     signal(SIGQUIT, signal_normal_cb);
     signal(SIGKILL, signal_normal_cb);
 
-    struct event ev_update;
-    event_assign(&ev_update, BASE, -1, EV_PERSIST, update_cb, 0);
+
+    event_assign(&EV_UPDATE, BASE, -1, EV_PERSIST, update_cb, 0);
     struct timeval tv;
     evutil_timerclear(&tv);
     tv.tv_sec = 300;
-    event_add(&ev_update, &tv);
+    event_add(&EV_UPDATE, &tv);
+
+
+    if (ENABLE_MULTIPROCESS) {
+
+        if (PROCESS_SIZE == 0) {
+            PROCESS_SIZE = get_cpu_count() - 1;
+        }
+        forker(PROCESS_SIZE, BASE, SERVER);
+    }
+
 
     event_base_dispatch(BASE);
-    event_del(&ev_update);
+    event_del(&EV_UPDATE);
 
 
 stop_server:
@@ -214,6 +233,15 @@ static bool initailize_config(const std::string& path) {
             json11::Json conf = json11::Json::parse(json_content, err);
             if (err.empty()) {
                 DAEMON = conf["daemon"].bool_value();
+                ENABLE_MULTIPROCESS = conf["multiprocess"]["enable"].bool_value();
+                if (ENABLE_MULTIPROCESS) {
+                    int process_len = conf["multiprocess"]["size"].int_value();
+                    if (process_len >= 0) {
+                        PROCESS_SIZE = static_cast<size_t> (process_len);
+                    } else {
+                        PROCESS_SIZE = 0;
+                    }
+                }
                 HOST = conf["host"].string_value();
                 PORT = conf["port"].int_value();
                 ENABLE_SSL = conf["ssl"]["enable"].bool_value();
@@ -675,4 +703,39 @@ static std::string random_string(const std::string& s) {
     time_t now = time(NULL);
     char* now_str = ctime(&now);
     return md5(s + now_str);
+}
+
+static void forker(size_t nprocesses, struct event_base* base, struct evhttp* server) {
+    pid_t pid;
+    static size_t t = 0;
+
+    if (nprocesses > 0) {
+        if ((pid = fork()) < 0) {
+            perror("fork");
+        } else if (pid == 0) {
+            //Child 
+            ++t;
+            worker(base, server);
+            raise(SIGTERM);
+        } else if (pid > 0) {
+            //parent
+            if (t != nprocesses - 1) {
+                forker(nprocesses - 1, base, server);
+            } else {
+                worker(base, server);
+                int status;
+                pid_t ppid = getpid();
+                waitpid(-ppid, &status, WNOHANG);
+                killpg(ppid, SIGTERM);
+            }
+        }
+    }
+}
+
+static void worker(struct event_base* base, struct evhttp* server) {
+    event_base_dispatch(base);
+}
+
+static size_t get_cpu_count() {
+    return (size_t) sysconf(_SC_NPROCESSORS_CONF);
 }
