@@ -96,7 +96,8 @@ static bool DAEMON = false,
         ENABLE_STATIC_SERVER = false,
         ENABLE_SESSION = false,
         ENABLE_GZIP = true,
-        ENABLE_MULTIPROCESS = true;
+        ENABLE_MULTIPROCESS = true,
+        CPU_AFFINITY = true;
 
 static int PORT = 9000, TIMEOUT = 60,
         REDIS_PORT = 6379,
@@ -115,6 +116,8 @@ static size_t MAX_HEADERS_SIZE = 8192,
         GZIP_MIN_SIZE = 1024,
         GZIP_MAX_SIZE = 2048,
         PROCESS_SIZE = 0;
+
+static std::vector<pid_t> PIDS;
 
 static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
 static std::unordered_map<std::string, std::string> MIME;
@@ -143,6 +146,7 @@ static std::string random_string(const std::string& s);
 static void forker(size_t nprocesses, struct event_base* base, struct evhttp* server);
 static void worker(struct event_base* base, struct evhttp* server);
 static size_t get_cpu_count();
+static int process_bind_cpu(pid_t pid, int cpu);
 
 int main(int argc, char** argv) {
     if (!initailize_config(CONFIG_FILE)) {
@@ -241,6 +245,7 @@ static bool initailize_config(const std::string& path) {
                     } else {
                         PROCESS_SIZE = 0;
                     }
+                    CPU_AFFINITY = conf["multiprocess"]["cpu_affinity"].bool_value();
                 }
                 HOST = conf["host"].string_value();
                 PORT = conf["port"].int_value();
@@ -706,11 +711,10 @@ static std::string random_string(const std::string& s) {
 }
 
 static void forker(size_t nprocesses, struct event_base* base, struct evhttp* server) {
-    pid_t pid;
     static size_t t = 0;
-
     if (nprocesses > 0) {
-        if ((pid = fork()) < 0) {
+        pid_t pid = fork();
+        if (pid < 0) {
             perror("fork");
         } else if (pid == 0) {
             //Child 
@@ -718,14 +722,24 @@ static void forker(size_t nprocesses, struct event_base* base, struct evhttp* se
             worker(base, server);
             raise(SIGTERM);
         } else if (pid > 0) {
-            //parent
+            //parent 
+            PIDS.push_back(pid);
             if (t != nprocesses - 1) {
                 forker(nprocesses - 1, base, server);
             } else {
-                worker(base, server);
                 int status;
                 pid_t ppid = getpid();
+                PIDS.push_back(ppid);
                 waitpid(-ppid, &status, WNOHANG);
+                if (CPU_AFFINITY) {
+                    size_t cpu_size = get_cpu_count();
+                    for (size_t i = 0; i < cpu_size; ++i) {
+                        if (i <= PIDS.size() - 1) {
+                            process_bind_cpu(PIDS[i], i);
+                        }
+                    }
+                }
+                worker(base, server);
                 killpg(ppid, SIGTERM);
             }
         }
@@ -738,4 +752,11 @@ static void worker(struct event_base* base, struct evhttp* server) {
 
 static size_t get_cpu_count() {
     return (size_t) sysconf(_SC_NPROCESSORS_CONF);
+}
+
+static int process_bind_cpu(pid_t pid, int cpu) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu, &set);
+    return sched_setaffinity(pid, sizeof (cpu_set_t), &set);
 }

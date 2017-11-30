@@ -2,6 +2,7 @@
     "daemon": true,
     "multiprocess": {
         "enable": true,
+        "cpu_affinity": true,
         "size": 0
     },
     "host": "127.0.0.1",
