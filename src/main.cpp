@@ -61,7 +61,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.3.0"
+#define PANGPANG                "pangpang/0.6.0"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
@@ -80,7 +80,7 @@ struct route_ele_t {
     std::shared_ptr<hi::module_class<hi::servlet>> module;
     std::shared_ptr<hi::cache::lru_cache<std::string, cache_ele_t>> cache;
     size_t expires;
-    bool session;
+    bool session, gzip;
 };
 
 typedef void (*CB_FUNC)(struct evhttp_request *, void *);
@@ -115,7 +115,8 @@ static size_t MAX_HEADERS_SIZE = 8192,
         SESSION_EXPIRES = 600,
         GZIP_MIN_SIZE = 1024,
         GZIP_MAX_SIZE = 2048,
-        PROCESS_SIZE = 0;
+        PROCESS_SIZE = 0,
+        UPDATE_INTERVAL = 3600;
 
 static std::vector<pid_t> PIDS;
 
@@ -144,7 +145,8 @@ static const std::string& content_type(const std::string& path);
 static std::string md5(const std::string& str);
 static std::string random_string(const std::string& s);
 static void forker(size_t nprocesses, struct event_base* base);
-static void worker(struct event_base* base);
+static void worker();
+static void stoper();
 static size_t get_cpu_count();
 static int process_bind_cpu(pid_t pid, int cpu);
 
@@ -195,7 +197,7 @@ int main(int argc, char** argv) {
     event_assign(&EV_UPDATE, BASE, -1, EV_PERSIST, update_cb, 0);
     struct timeval tv;
     evutil_timerclear(&tv);
-    tv.tv_sec = 300;
+    tv.tv_sec = UPDATE_INTERVAL;
     event_add(&EV_UPDATE, &tv);
 
 
@@ -208,22 +210,10 @@ int main(int argc, char** argv) {
     }
 
 
-    event_base_dispatch(BASE);
-    event_del(&EV_UPDATE);
-
+    worker();
 
 stop_server:
-    evhttp_free(SERVER);
-    event_base_free(BASE);
-    if (ECDH) {
-        EC_KEY_free(ECDH);
-    }
-    if (CTX) {
-        SSL_CTX_free(CTX);
-    }
-    PLUGIN.clear();
-    MIME.clear();
-    remove(PID_FILE);
+    stoper();
 
     return 0;
 }
@@ -256,6 +246,7 @@ static bool initailize_config(const std::string& path) {
                 MAX_HEADERS_SIZE = static_cast<size_t> (conf["max_headers_size"].number_value());
                 MAX_BODY_SIZE = static_cast<size_t> (conf["max_body_size"].number_value());
                 TIMEOUT = conf["timeout"].int_value();
+                UPDATE_INTERVAL = static_cast<size_t> (conf["update_interval"].number_value());
 
                 std::ifstream is(PATTERN_FILE);
                 std::string line;
@@ -277,6 +268,7 @@ static bool initailize_config(const std::string& path) {
                             tmp->expires = static_cast<size_t> (item["cache"]["expires"].number_value());
                         }
                         tmp->session = item["session"].bool_value();
+                        tmp->gzip = item["gzip"].bool_value();
                         PLUGIN.push_back(std::move(tmp));
                     }
                 }
@@ -447,7 +439,7 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                                 res.content = gzip::decompress(content, content_len);
                             }
                         } else {
-                            if (gzip_header && ENABLE_GZIP && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
+                            if (gzip_header && ENABLE_GZIP && item->gzip && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
                                 res.content = gzip::compress(content, content_len, GZIP_LEVEL);
                                 res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
                             } else {
@@ -588,7 +580,7 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
 
                 instance->handler(req, res);
 
-                if (ENABLE_GZIP) {
+                if (ENABLE_GZIP && item->gzip) {
                     const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding"),
                             *content = res.content.c_str();
                     size_t content_len = res.content.size();
@@ -719,8 +711,9 @@ static void forker(size_t nprocesses, struct event_base* base) {
         } else if (pid == 0) {
             //Child 
             ++t;
-            worker(base);
-            raise(SIGTERM);
+            worker();
+            stoper();
+            raise(SIGHUP);
         } else if (pid > 0) {
             //parent 
             PIDS.push_back(pid);
@@ -739,15 +732,32 @@ static void forker(size_t nprocesses, struct event_base* base) {
                         }
                     }
                 }
-                worker(base);
-                killpg(ppid, SIGTERM);
+                worker();
+                killpg(ppid, SIGHUP);
             }
         }
     }
 }
 
-static void worker(struct event_base* base) {
-    event_base_dispatch(base);
+static void worker() {
+    event_base_dispatch(BASE);
+}
+
+static void stoper() {
+    event_del(&EV_UPDATE);
+    evhttp_free(SERVER);
+    event_base_free(BASE);
+    if (ECDH) {
+        EC_KEY_free(ECDH);
+    }
+    if (CTX) {
+        SSL_CTX_free(CTX);
+    }
+    PLUGIN.clear();
+    MIME.clear();
+    if (is_file(PID_FILE)) {
+        remove(PID_FILE);
+    }
 }
 
 static size_t get_cpu_count() {

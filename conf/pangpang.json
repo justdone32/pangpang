@@ -3,7 +3,7 @@
     "multiprocess": {
         "enable": true,
         "cpu_affinity": true,
-        "size": 0
+        "size": 1
     },
     "host": "127.0.0.1",
     "port": 9000,
@@ -29,7 +29,8 @@
                 "expires": 300,
                 "size": 30
             },
-            "session": false
+            "session": false,
+            "gip":false
         },
         {
             "pattern": "form",
@@ -39,7 +40,8 @@
                 "expires": 300,
                 "size": 30
             },
-            "session": false
+            "session": false,
+            "gzip":false
         },
         {
             "pattern": "session",
@@ -49,7 +51,8 @@
                 "expires": 300,
                 "size": 30
             },
-            "session": true
+            "session": true,
+            "gzip":false
         }
     ],
     "session": {
@@ -58,6 +61,7 @@
         "port": 6379,
         "expires": 600
     },
+    "update_interval":3600,
     "temp_directory": "temp",
     "static_server": {
         "enable": true,
