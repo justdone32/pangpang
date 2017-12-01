@@ -30,7 +30,7 @@
                 "size": 30
             },
             "session": false,
-            "gip":false
+            "gip": false
         },
         {
             "pattern": "form",
@@ -41,7 +41,7 @@
                 "size": 30
             },
             "session": false,
-            "gzip":false
+            "gzip": false
         },
         {
             "pattern": "session",
@@ -52,7 +52,7 @@
                 "size": 30
             },
             "session": true,
-            "gzip":false
+            "gzip": false
         }
     ],
     "session": {
@@ -61,12 +61,13 @@
         "port": 6379,
         "expires": 600
     },
-    "update_interval":3600,
+    "update_interval": 3600,
     "temp_directory": "temp",
     "static_server": {
         "enable": true,
         "root": "html",
         "default_content_type": "text/html",
+        "list_directory": true,
         "mime": [{
                 "extension": "html",
                 "content_type": "text/html"

@@ -47,6 +47,7 @@
 #include "inc/request.hpp"
 #include "inc/response.hpp"
 #include "inc/servlet.hpp"
+#include "inc/mustache.hpp"
 #include "lib/module_class.hpp"
 #include "lib/lrucache.hpp"
 #include "lib/redis.hpp"
@@ -94,6 +95,7 @@ static EC_KEY *ECDH = 0;
 static bool DAEMON = false,
         ENABLE_SSL = false,
         ENABLE_STATIC_SERVER = false,
+        ENABLE_LIST_DIRECTORY = false,
         ENABLE_SESSION = false,
         ENABLE_GZIP = true,
         ENABLE_MULTIPROCESS = true,
@@ -140,6 +142,7 @@ static int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, con
 
 static bool is_file(const std::string& s);
 static bool is_dir(const std::string& s);
+static std::string list_dir(const std::string& dir);
 static void read_file(const std::string& path, std::string& out);
 static const std::string& content_type(const std::string& path);
 static std::string md5(const std::string& str);
@@ -279,6 +282,7 @@ static bool initailize_config(const std::string& path) {
                     for (auto &item : conf["static_server"]["mime"].array_items()) {
                         MIME[item["extension"].string_value()] = item["content_type"].string_value();
                     }
+                    ENABLE_LIST_DIRECTORY = conf["static_server"]["list_directory"].bool_value();
                 }
                 ENABLE_SESSION = conf["session"]["enable"].bool_value();
                 if (ENABLE_SESSION) {
@@ -619,8 +623,13 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
         int s_t = stat(full_path.c_str(), &st);
         if (s_t >= 0) {
             if (S_ISDIR(st.st_mode)) {
-                res.content = "<p style='text-align:center;margin:100px;'>403 Forbidden</p>";
-                res.status = 403;
+                if (ENABLE_LIST_DIRECTORY) {
+                    res.content = list_dir(full_path);
+                    res.status = 200;
+                } else {
+                    res.content = "<p style='text-align:center;margin:100px;'>403 Forbidden</p>";
+                    res.status = 403;
+                }
             } else if (S_ISREG(st.st_mode)) {
                 const char* if_modified_since = evhttp_find_header(evhttp_request_get_input_headers(ev_req), "If-Modified-Since");
                 if (if_modified_since) {
@@ -658,6 +667,51 @@ static bool is_file(const std::string& s) {
 static bool is_dir(const std::string& s) {
     struct stat st;
     return stat(s.c_str(), &st) >= 0 && S_ISDIR(st.st_mode);
+}
+
+static std::string list_dir(const std::string& path) {
+
+    std::string list_content = "<!DOCTYPE html>"
+            "<html>"
+            "<head>"
+            "<style>"
+            "</style>"
+            "</head>"
+            "<body>"
+            "<div>"
+            "<h3>Directory index</h3>"
+            "<ul>"
+            "{{#list}}"
+            "<li>"
+            "<a real_path='{{real_path}}' href=\"{{href}}\">{{name}}</a>"
+            "</li>"
+            "{{/list}}"
+            "</ul>"
+            "</div>"
+            "</body>"
+            "</html>";
+    kainjow::mustache::mustache render_engine(list_content);
+    kainjow::mustache::data list{kainjow::mustache::data::type::list};
+
+    DIR * dir = opendir(path.c_str());
+    std::string tmp_path;
+    size_t n = ROOT.size();
+    struct dirent * entry;
+    bool b = path.back() != '/';
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+            tmp_path = b ? path + "/" + entry->d_name : path + entry->d_name;
+            auto p = tmp_path.find(ROOT);
+            kainjow::mustache::data item;
+            item.set("name", entry->d_name);
+            item.set("href", tmp_path.substr(p + n));
+            item.set("real_path", tmp_path);
+            list.push_back(item);
+        }
+    }
+    closedir(dir);
+    return render_engine.render({"list", list});
+
 }
 
 static void read_file(const std::string& path, std::string& out) {
