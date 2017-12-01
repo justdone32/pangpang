@@ -26,7 +26,7 @@ install:
 	test -d $(PREFIX)/temp || mkdir -p $(PREFIX)/temp
 	cp src/inc/*.hpp $(PREFIX)/include
 	install bin/pangpang $(PREFIX)/bin
-	install conf/pangpang.json $(PREFIX)/conf
-	install conf/pattern.conf $(PREFIX)/conf
+	test -f $(PREFIX)/conf/pangpang.json || install conf/pangpang.json $(PREFIX)/conf
+	test -f $(PREFIX)/conf/pattern.conf  || install conf/pattern.conf $(PREFIX)/conf
 	install html/index.html $(PREFIX)/html
 	cp systemctl/pangpang.service /etc/systemd/system

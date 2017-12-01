@@ -143,8 +143,8 @@ static void read_file(const std::string& path, std::string& out);
 static const std::string& content_type(const std::string& path);
 static std::string md5(const std::string& str);
 static std::string random_string(const std::string& s);
-static void forker(size_t nprocesses, struct event_base* base, struct evhttp* server);
-static void worker(struct event_base* base, struct evhttp* server);
+static void forker(size_t nprocesses, struct event_base* base);
+static void worker(struct event_base* base);
 static size_t get_cpu_count();
 static int process_bind_cpu(pid_t pid, int cpu);
 
@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
         if (PROCESS_SIZE == 0) {
             PROCESS_SIZE = get_cpu_count() - 1;
         }
-        forker(PROCESS_SIZE, BASE, SERVER);
+        forker(PROCESS_SIZE, BASE);
     }
 
 
@@ -710,7 +710,7 @@ static std::string random_string(const std::string& s) {
     return md5(s + now_str);
 }
 
-static void forker(size_t nprocesses, struct event_base* base, struct evhttp* server) {
+static void forker(size_t nprocesses, struct event_base* base) {
     static size_t t = 0;
     if (nprocesses > 0) {
         pid_t pid = fork();
@@ -719,13 +719,13 @@ static void forker(size_t nprocesses, struct event_base* base, struct evhttp* se
         } else if (pid == 0) {
             //Child 
             ++t;
-            worker(base, server);
+            worker(base);
             raise(SIGTERM);
         } else if (pid > 0) {
             //parent 
             PIDS.push_back(pid);
             if (t != nprocesses - 1) {
-                forker(nprocesses - 1, base, server);
+                forker(nprocesses - 1, base);
             } else {
                 int status;
                 pid_t ppid = getpid();
@@ -739,14 +739,14 @@ static void forker(size_t nprocesses, struct event_base* base, struct evhttp* se
                         }
                     }
                 }
-                worker(base, server);
+                worker(base);
                 killpg(ppid, SIGTERM);
             }
         }
     }
 }
 
-static void worker(struct event_base* base, struct evhttp* server) {
+static void worker(struct event_base* base) {
     event_base_dispatch(base);
 }
 
