@@ -86,6 +86,7 @@ struct route_ele_t {
 
 typedef void (*CB_FUNC)(struct evhttp_request *, void *);
 static CB_FUNC CB = 0;
+struct event_config *EV_CONFIG = 0;
 static struct event_base *BASE = 0;
 static struct evhttp *SERVER = 0;
 static struct event EV_UPDATE;
@@ -167,7 +168,14 @@ int main(int argc, char** argv) {
         pid_file << getpid();
     }
 
-    BASE = event_base_new();
+    EV_CONFIG = event_config_new();
+    event_config_set_flag(EV_CONFIG, EVENT_BASE_FLAG_NOLOCK);
+    event_config_set_flag(EV_CONFIG, EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST);
+
+
+    BASE = event_base_new_with_config(EV_CONFIG);
+
+
     SERVER = evhttp_new(BASE);
 
 
@@ -763,7 +771,8 @@ static void forker(size_t nprocesses, struct event_base* base) {
         if (pid < 0) {
             perror("fork");
         } else if (pid == 0) {
-            //Child 
+            //Child
+            event_reinit(BASE);
             ++t;
             worker();
             stoper();
@@ -801,6 +810,7 @@ static void stoper() {
     event_del(&EV_UPDATE);
     evhttp_free(SERVER);
     event_base_free(BASE);
+    event_config_free(EV_CONFIG);
     if (ECDH) {
         EC_KEY_free(ECDH);
     }
