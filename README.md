@@ -66,3 +66,135 @@ see `conf/pangpang.json`
 
 `sudo systemctl (start|stop|restart|status) pangpang`
 
+## Configure example,see `conf/pangpang.json` and `conf/pattern.conf`
+### Base
+`
+{
+    "daemon": true,
+    "multiprocess": {
+        "enable": true,
+        "cpu_affinity": true,
+        "size": 1
+    },
+    "host": "127.0.0.1",
+    "port": 9000,
+    "ssl": {
+        "enable": false,
+        "cert": "",
+        "key": ""
+    },
+    "max_headers_size": 8192,
+    "max_body_size": 1048567,
+    "timeout": 60,
+    "gzip": {
+        "enable": true,
+        "min_size": 1024,
+        "min_size": 2048,
+        "level": -1
+    },
+    "route": [{
+            "pattern": "hello",
+            "module": "mod/hello.so",
+            "cache": {
+                "enable": true,
+                "expires": 300,
+                "size": 30
+            },
+            "session": false,
+            "gip": false
+        },
+        {
+            "pattern": "form",
+            "module": "mod/form.so",
+            "cache": {
+                "enable": false,
+                "expires": 300,
+                "size": 30
+            },
+            "session": false,
+            "gzip": false
+        },
+        {
+            "pattern": "session",
+            "module": "mod/session.so",
+            "cache": {
+                "enable": false,
+                "expires": 300,
+                "size": 30
+            },
+            "session": true,
+            "gzip": false
+        }
+    ],
+    "session": {
+        "enable": true,
+        "host": "127.0.0.1",
+        "port": 6379,
+        "expires": 600
+    },
+    "update_interval": 3600,
+    "temp_directory": "temp",
+    "static_server": {
+        "enable": true,
+        "root": "html",
+        "default_content_type": "text/html",
+        "list_directory": true,
+        "mime": [{
+                "extension": "html",
+                "content_type": "text/html"
+            }, {
+                "extension": "txt",
+                "content_type": "text/plain"
+            }, {
+                "extension": "js",
+                "content_type": "application/x-javascript"
+            },
+            {
+                "extension": "css",
+                "content_type": "text/css"
+            },
+            {
+                "extension": "jpg",
+                "content_type": "image/jpeg"
+            },
+            {
+                "extension": "jpeg",
+                "content_type": "image/jpeg"
+            },
+            {
+                "extension": "gif",
+                "content_type": "image/gif"
+            },
+            {
+                "extension": "png",
+                "content_type": "image/png"
+            },
+            {
+                "extension": "ico",
+                "content_type": "image/x-icon"
+            },
+            {
+                "extension": "json",
+                "content_type": "application/json"
+            },
+            {
+                "extension": "zip",
+                "content_type": "application/zip"
+            },
+            {
+                "extension": "*",
+                "content_type": "application/octet-stream"
+            }
+        ]
+    }
+}
+ 
+`
+### Route pattern configure
+`
+hello       =       ^/hello/?([0-9a-z]?)?$
+form        =       /form
+session     =       /session
+
+`
+
