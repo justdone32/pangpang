@@ -66,9 +66,10 @@ see `conf/pangpang.json`
 
 `sudo systemctl (start|stop|restart|status) pangpang`
 
-## Configure example,see `conf/pangpang.json` and `conf/pattern.conf`
+## Configure example
+see `conf/pangpang.json` and `conf/pattern.conf`
 ### Base
-`
+```
 {
     "daemon": true,
     "multiprocess": {
@@ -189,12 +190,12 @@ see `conf/pangpang.json`
     }
 }
  
-`
+```
 ### Route pattern configure
-`
+```
 hello       =       ^/hello/?([0-9a-z]?)?$
 form        =       /form
 session     =       /session
 
-`
+```
 
