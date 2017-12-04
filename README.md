@@ -90,7 +90,7 @@ see `conf/pangpang.json` and `conf/pattern.conf`
     "gzip": {
         "enable": true,
         "min_size": 1024,
-        "min_size": 2048,
+        "max_size": 2048,
         "level": -1
     },
     "route": [{
