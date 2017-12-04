@@ -62,7 +62,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.7.0"
+#define PANGPANG                "pangpang/0.8.1"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
