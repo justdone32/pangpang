@@ -62,7 +62,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.8.1"
+#define PANGPANG                "pangpang/0.8.2"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
@@ -89,7 +89,6 @@ static CB_FUNC CB = 0;
 struct event_config *EV_CONFIG = 0;
 static struct event_base *BASE = 0;
 static struct evhttp *SERVER = 0;
-static struct event EV_UPDATE;
 static SSL_CTX *CTX = 0;
 static EC_KEY *ECDH = 0;
 
@@ -130,7 +129,7 @@ static std::shared_ptr<hi::redis> REDIS;
 static bool initailize_config(const std::string& path);
 static void signal_normal_cb(int sig);
 static void generic_request_handler(struct evhttp_request *req, void *arg);
-static void update_cb(evutil_socket_t fd, short ev, void *arg);
+
 
 static void *my_zeroing_malloc(size_t howmuch);
 static void ssl_setup();
@@ -203,13 +202,6 @@ int main(int argc, char** argv) {
     signal(SIGINT, signal_normal_cb);
     signal(SIGQUIT, signal_normal_cb);
     signal(SIGKILL, signal_normal_cb);
-
-
-    event_assign(&EV_UPDATE, BASE, -1, EV_PERSIST, update_cb, 0);
-    struct timeval tv;
-    evutil_timerclear(&tv);
-    tv.tv_sec = UPDATE_INTERVAL;
-    event_add(&EV_UPDATE, &tv);
 
 
     if (ENABLE_MULTIPROCESS) {
@@ -316,10 +308,6 @@ static bool initailize_config(const std::string& path) {
         }
     }
     return false;
-}
-
-static void update_cb(evutil_socket_t fd, short ev, void *arg) {
-
 }
 
 static void *my_zeroing_malloc(size_t howmuch) {
@@ -805,7 +793,6 @@ static void worker() {
 }
 
 static void stoper() {
-    event_del(&EV_UPDATE);
     evhttp_free(SERVER);
     event_base_free(BASE);
     event_config_free(EV_CONFIG);
