@@ -62,7 +62,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.8.2"
+#define PANGPANG                "pangpang/0.8.3"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
@@ -81,7 +81,7 @@ struct route_ele_t {
     std::shared_ptr<hi::module_class<hi::servlet>> module;
     std::shared_ptr<hi::cache::lru_cache<std::string, cache_ele_t>> cache;
     size_t expires;
-    bool session, gzip;
+    bool session, gzip, header, cookie;
 };
 
 typedef void (*CB_FUNC)(struct evhttp_request *, void *);
@@ -272,6 +272,9 @@ static bool initailize_config(const std::string& path) {
                         }
                         tmp->session = item["session"].bool_value();
                         tmp->gzip = item["gzip"].bool_value();
+                        tmp->header = item["header"].bool_value();
+                        tmp->cookie = item["cookie"].bool_value();
+                        if (tmp->session&&!tmp->cookie)tmp->cookie = true;
                         PLUGIN.push_back(std::move(tmp));
                     }
                 }
@@ -500,13 +503,15 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
                 default:req.method = "unknown";
                     break;
             }
-
-            for (struct evkeyval *header = ev_input_headers->tqh_first; header; header = header->next.tqe_next) {
-                req.headers[header->key] = header->value;
+            if (item->header) {
+                for (struct evkeyval *header = ev_input_headers->tqh_first; header; header = header->next.tqe_next) {
+                    req.headers[header->key] = header->value;
+                }
             }
-
-            const char* cookie = evhttp_find_header(ev_input_headers, "Cookie");
-            if (cookie)hi::parser_param(cookie, req.cookies, '&', '=');
+            if (item->cookie) {
+                const char* cookie = evhttp_find_header(ev_input_headers, "Cookie");
+                if (cookie)hi::parser_param(cookie, req.cookies, '&', '=');
+            }
 
             const char* input_content_type = evhttp_find_header(ev_input_headers, "Content-Type");
             if (input_content_type && req_method == EVHTTP_REQ_POST) {
@@ -556,8 +561,9 @@ static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
 
             std::string SESSION_ID_VALUE;
             if (item->session && ENABLE_SESSION) {
-                if (req.cookies.find(SESSION_ID_NAME) != req.cookies.end()) {
-                    SESSION_ID_VALUE = req.cookies[SESSION_ID_NAME ];
+                auto session_id_value_iterator = req.cookies.find(SESSION_ID_NAME);
+                if (session_id_value_iterator != req.cookies.end()) {
+                    SESSION_ID_VALUE = session_id_value_iterator->second;
                     if (!REDIS->exists(SESSION_ID_VALUE)) {
                         REDIS->hset(SESSION_ID_VALUE, SESSION_ID_NAME, SESSION_ID_VALUE);
                         REDIS->expire(SESSION_ID_VALUE, SESSION_EXPIRES);

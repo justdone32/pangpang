@@ -30,6 +30,8 @@
                 "size": 30
             },
             "session": false,
+            "header": false,
+            "cookie": false,
             "gzip": false
         },
         {
@@ -41,6 +43,8 @@
                 "size": 30
             },
             "session": false,
+            "header": true,
+            "cookie": true,
             "gzip": false
         },
         {
@@ -52,6 +56,8 @@
                 "size": 30
             },
             "session": true,
+            "header": false,
+            "cookie": true,
             "gzip": false
         }
     ],
