@@ -30,7 +30,7 @@
                 "size": 30
             },
             "session": false,
-            "gip": false
+            "gzip": false
         },
         {
             "pattern": "form",
