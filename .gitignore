@@ -37,3 +37,4 @@
 /temp/*.txt
 /temp/*.html
 /logs/pangpang.pid
+/html/nginx.html

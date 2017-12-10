@@ -126,32 +126,32 @@ static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
 static std::unordered_map<std::string, std::string> MIME;
 static std::shared_ptr<hi::redis> REDIS;
 
-static bool initailize_config(const std::string& path);
-static void signal_normal_cb(int sig);
-static void generic_request_handler(struct evhttp_request *req, void *arg);
+static inline bool initailize_config(const std::string& path);
+static inline void signal_normal_cb(int sig);
+static inline void generic_request_handler(struct evhttp_request *req, void *arg);
 
 
-static void *my_zeroing_malloc(size_t howmuch);
-static void ssl_setup();
-static struct bufferevent* bevcb(struct event_base *base, void *arg);
-static int server_setup_certs(SSL_CTX *ctx,
+static inline void *my_zeroing_malloc(size_t howmuch);
+static inline void ssl_setup();
+static inline struct bufferevent* bevcb(struct event_base *base, void *arg);
+static inline int server_setup_certs(SSL_CTX *ctx,
         const char *certificate_chain,
         const char *private_key);
-static int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, const char *certificate_chain,
+static inline int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, const char *certificate_chain,
         const char *private_key);
 
-static bool is_file(const std::string& s);
-static bool is_dir(const std::string& s);
-static std::string list_dir(const std::string& dir);
-static void read_file(const std::string& path, std::string& out);
-static const std::string& content_type(const std::string& path);
-static std::string md5(const std::string& str);
-static std::string random_string(const std::string& s);
-static void forker(size_t nprocesses, struct event_base* base);
-static void worker();
-static void stoper();
-static size_t get_cpu_count();
-static int process_bind_cpu(pid_t pid, int cpu);
+static inline bool is_file(const std::string& s);
+static inline bool is_dir(const std::string& s);
+static inline std::string list_dir(const std::string& dir);
+static inline void read_file(const std::string& path, std::string& out);
+static inline const std::string& content_type(const std::string& path);
+static inline std::string md5(const std::string& str);
+static inline std::string random_string(const std::string& s);
+static inline void forker(size_t nprocesses, struct event_base* base);
+static inline void worker();
+static inline void stoper();
+static inline size_t get_cpu_count();
+static inline int process_bind_cpu(pid_t pid, int cpu);
 
 int main(int argc, char** argv) {
     if (!initailize_config(CONFIG_FILE)) {
@@ -221,7 +221,7 @@ stop_server:
     return 0;
 }
 
-static bool initailize_config(const std::string& path) {
+static inline bool initailize_config(const std::string& path) {
     if (is_file(CONFIG_FILE) && is_file(PATTERN_FILE)) {
         std::string json_content;
         read_file(path, json_content);
@@ -313,11 +313,11 @@ static bool initailize_config(const std::string& path) {
     return false;
 }
 
-static void *my_zeroing_malloc(size_t howmuch) {
+static inline void *my_zeroing_malloc(size_t howmuch) {
     return calloc(1, howmuch);
 }
 
-static void ssl_setup() {
+static inline void ssl_setup() {
     signal(SIGPIPE, SIG_IGN);
     CRYPTO_set_mem_functions(my_zeroing_malloc, realloc, free);
     SSL_library_init();
@@ -325,7 +325,7 @@ static void ssl_setup() {
     OpenSSL_add_all_algorithms();
 }
 
-static struct bufferevent* bevcb(struct event_base *base, void *arg) {
+static inline struct bufferevent* bevcb(struct event_base *base, void *arg) {
     struct bufferevent* r;
     SSL_CTX *ctx = (SSL_CTX *) arg;
 
@@ -337,7 +337,7 @@ static struct bufferevent* bevcb(struct event_base *base, void *arg) {
     return r;
 }
 
-static int server_setup_certs(SSL_CTX *ctx,
+static inline int server_setup_certs(SSL_CTX *ctx,
         const char *certificate_chain,
         const char *private_key) {
     if (1 != SSL_CTX_use_certificate_chain_file(ctx, certificate_chain)) {
@@ -354,7 +354,7 @@ static int server_setup_certs(SSL_CTX *ctx,
     return 1;
 }
 
-static int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, const char *certificate_chain,
+static inline int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, const char *certificate_chain,
         const char *private_key) {
     ssl_setup();
     ctx = SSL_CTX_new(SSLv23_server_method());
@@ -385,7 +385,7 @@ static int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, con
     return 1;
 }
 
-static void signal_normal_cb(int sig) {
+static inline void signal_normal_cb(int sig) {
     struct timeval delay = {1, 0};
     switch (sig) {
         case SIGTERM:
@@ -399,7 +399,7 @@ static void signal_normal_cb(int sig) {
     }
 }
 
-static void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
+static inline void generic_request_handler(struct evhttp_request *ev_req, void *arg) {
     struct evbuffer *ev_res = evhttp_request_get_output_buffer(ev_req);
     struct evkeyvalq *ev_output_headers = evhttp_request_get_output_headers(ev_req),
             *ev_input_headers = evhttp_request_get_input_headers(ev_req);
@@ -659,17 +659,17 @@ done:
 
 }
 
-static bool is_file(const std::string& s) {
+static inline bool is_file(const std::string& s) {
     struct stat st;
     return stat(s.c_str(), &st) >= 0 && S_ISREG(st.st_mode);
 }
 
-static bool is_dir(const std::string& s) {
+static inline bool is_dir(const std::string& s) {
     struct stat st;
     return stat(s.c_str(), &st) >= 0 && S_ISDIR(st.st_mode);
 }
 
-static std::string list_dir(const std::string& path) {
+static inline std::string list_dir(const std::string& path) {
 
     std::string list_content = "<!DOCTYPE html>"
             "<html>"
@@ -714,7 +714,7 @@ static std::string list_dir(const std::string& path) {
 
 }
 
-static void read_file(const std::string& path, std::string& out) {
+static inline void read_file(const std::string& path, std::string& out) {
     std::ifstream fs(path, std::ios_base::binary);
     fs.seekg(0, std::ios_base::end);
     auto size = fs.tellg();
@@ -723,7 +723,7 @@ static void read_file(const std::string& path, std::string& out) {
     fs.read(&out[0], size);
 }
 
-static const std::string& content_type(const std::string& path) {
+static inline const std::string& content_type(const std::string& path) {
     auto p = path.find_last_of(".");
     const std::string ext = path.substr(p + 1);
     if (MIME.find(ext) != MIME.end()) {
@@ -732,7 +732,7 @@ static const std::string& content_type(const std::string& path) {
     return MIME["*"];
 }
 
-static std::string md5(const std::string& str) {
+static inline std::string md5(const std::string& str) {
     unsigned char digest[16] = {0};
     MD5_CTX ctx;
     MD5_Init(&ctx);
@@ -750,13 +750,13 @@ static std::string md5(const std::string& str) {
     return std::string((char*) tmp, 32);
 }
 
-static std::string random_string(const std::string& s) {
+static inline std::string random_string(const std::string& s) {
     time_t now = time(NULL);
     char* now_str = ctime(&now);
     return md5(s + now_str);
 }
 
-static void forker(size_t nprocesses, struct event_base* base) {
+static inline void forker(size_t nprocesses, struct event_base* base) {
     static size_t t = 0;
     if (nprocesses > 0) {
         pid_t pid = fork();
@@ -794,11 +794,11 @@ static void forker(size_t nprocesses, struct event_base* base) {
     }
 }
 
-static void worker() {
+static inline void worker() {
     event_base_dispatch(BASE);
 }
 
-static void stoper() {
+static inline void stoper() {
     evhttp_free(SERVER);
     event_base_free(BASE);
     event_config_free(EV_CONFIG);
@@ -815,11 +815,11 @@ static void stoper() {
     }
 }
 
-static size_t get_cpu_count() {
+static inline size_t get_cpu_count() {
     return (size_t) sysconf(_SC_NPROCESSORS_CONF);
 }
 
-static int process_bind_cpu(pid_t pid, int cpu) {
+static inline int process_bind_cpu(pid_t pid, int cpu) {
     cpu_set_t set;
     CPU_ZERO(&set);
     CPU_SET(cpu, &set);
