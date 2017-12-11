@@ -9,7 +9,7 @@ High performance web server and application server for c++
 
 ## cpp servlet class
 
-```
+```cpp
 #include "servlet.hpp"
 namespace hi{
 class hello : public servlet {
