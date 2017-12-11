@@ -73,7 +73,7 @@ see `conf/pangpang.json`
 ## Configure example
 see `conf/pangpang.json` and `conf/pattern.conf`
 ### Base configure
-```js
+```json
 {
     "daemon": true,
     "multiprocess": {
@@ -97,6 +97,13 @@ see `conf/pangpang.json` and `conf/pattern.conf`
         "max_size": 2048,
         "level": -1
     },
+    "session": {
+        "enable": true,
+        "host": "127.0.0.1",
+        "port": 6379,
+        "expires": 600
+    },
+    "temp_directory": "temp",
     "route": [{
             "pattern": "hello",
             "module": "mod/hello.so",
@@ -137,14 +144,6 @@ see `conf/pangpang.json` and `conf/pattern.conf`
             "gzip": false
         }
     ],
-    "session": {
-        "enable": true,
-        "host": "127.0.0.1",
-        "port": 6379,
-        "expires": 600
-    },
-    "update_interval": 3600,
-    "temp_directory": "temp",
     "static_server": {
         "enable": true,
         "root": "html",
@@ -198,9 +197,7 @@ see `conf/pangpang.json` and `conf/pattern.conf`
             }
         ]
     }
-}
-
- 
+} 
 ```
 ### Route pattern configure
 ```

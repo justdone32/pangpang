@@ -62,7 +62,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.8.3"
+#define PANGPANG                "pangpang/0.8.4"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
@@ -117,8 +117,7 @@ static size_t MAX_HEADERS_SIZE = 8192,
         SESSION_EXPIRES = 600,
         GZIP_MIN_SIZE = 1024,
         GZIP_MAX_SIZE = 2048,
-        PROCESS_SIZE = 0,
-        UPDATE_INTERVAL = 3600;
+        PROCESS_SIZE = 0;
 
 static std::vector<pid_t> PIDS;
 
@@ -249,7 +248,6 @@ static inline bool initailize_config(const std::string& path) {
                 MAX_HEADERS_SIZE = static_cast<size_t> (conf["max_headers_size"].number_value());
                 MAX_BODY_SIZE = static_cast<size_t> (conf["max_body_size"].number_value());
                 TIMEOUT = conf["timeout"].int_value();
-                UPDATE_INTERVAL = static_cast<size_t> (conf["update_interval"].number_value());
 
                 std::ifstream is(PATTERN_FILE);
                 std::string line;
