@@ -1,5 +1,9 @@
 # pangpang
-web server and application server for c++
+High performance web server and application server for c++
+
+## wiki
+[wiki](https://github.com/webcpp/pangpang/wiki)
+
 
 # hello,world
 
