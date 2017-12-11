@@ -73,7 +73,7 @@ see `conf/pangpang.json`
 ## Configure example
 see `conf/pangpang.json` and `conf/pattern.conf`
 ### Base configure
-```
+```js
 {
     "daemon": true,
     "multiprocess": {
