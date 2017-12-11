@@ -72,14 +72,14 @@ see `conf/pangpang.json`
 
 ## Configure example
 see `conf/pangpang.json` and `conf/pattern.conf`
-### Base
+### Base configure
 ```
 {
     "daemon": true,
     "multiprocess": {
         "enable": true,
         "cpu_affinity": true,
-        "size": 1
+        "size": 3
     },
     "host": "127.0.0.1",
     "port": 9000,
@@ -106,7 +106,9 @@ see `conf/pangpang.json` and `conf/pattern.conf`
                 "size": 30
             },
             "session": false,
-            "gip": false
+            "header": false,
+            "cookie": false,
+            "gzip": false
         },
         {
             "pattern": "form",
@@ -117,6 +119,8 @@ see `conf/pangpang.json` and `conf/pattern.conf`
                 "size": 30
             },
             "session": false,
+            "header": true,
+            "cookie": true,
             "gzip": false
         },
         {
@@ -128,6 +132,8 @@ see `conf/pangpang.json` and `conf/pattern.conf`
                 "size": 30
             },
             "session": true,
+            "header": false,
+            "cookie": true,
             "gzip": false
         }
     ],
@@ -193,6 +199,7 @@ see `conf/pangpang.json` and `conf/pattern.conf`
         ]
     }
 }
+
  
 ```
 ### Route pattern configure
