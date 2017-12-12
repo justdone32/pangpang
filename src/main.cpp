@@ -62,7 +62,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.8.4"
+#define PANGPANG                "pangpang/0.8.5"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
@@ -80,7 +80,7 @@ struct route_ele_t {
     std::shared_ptr<hi::cregex> cregex;
     std::shared_ptr<hi::module_class<hi::servlet>> module;
     std::shared_ptr<hi::cache::lru_cache<std::string, cache_ele_t>> cache;
-    size_t expires;
+    size_t expires, max_match_size;
     bool session, gzip, header, cookie;
 };
 
@@ -262,7 +262,7 @@ static inline bool initailize_config(const std::string& path) {
                     if (pattern.find(pattern_name) != pattern.end()) {
                         pattern_value = pattern[pattern_name];
                         auto tmp = std::make_shared<route_ele_t>();
-                        tmp->cregex = std::move(std::make_shared<hi::cregex>(pattern_value, false));
+                        tmp->cregex = std::move(std::make_shared<hi::cregex>(pattern_value, true));
                         tmp->module = std::move(std::make_shared<hi::module_class < hi::servlet >> (item["module"].string_value()));
                         if (item["cache"]["enable"].bool_value()) {
                             tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
@@ -272,6 +272,7 @@ static inline bool initailize_config(const std::string& path) {
                         tmp->gzip = item["gzip"].bool_value();
                         tmp->header = item["header"].bool_value();
                         tmp->cookie = item["cookie"].bool_value();
+                        tmp->max_match_size = static_cast<size_t> (item["max_match_size"].int_value());
                         if (tmp->session&&!tmp->cookie)tmp->cookie = true;
                         PLUGIN.push_back(std::move(tmp));
                     }
@@ -406,16 +407,16 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
     hi::request req;
     hi::response res;
 
-    req.uri = evhttp_uri_get_path(ev_uri);
-
+    req.uri = std::move(evhttp_uri_get_path(ev_uri));
+    std::vector<std::string> matches;
     auto item_iterator = std::find_if(PLUGIN.begin(), PLUGIN.end(), [&](std::shared_ptr<route_ele_t>& i) {
-        return i->cregex->match(req.uri);
+        return i->max_match_size >= 1 ? i->cregex->match_and_get(req.uri, matches, i->max_match_size) : i->cregex->match(req.uri);
     });
     if (item_iterator != PLUGIN.end()) {
         auto item = *item_iterator;
         std::string md5_key;
         if (item->cache) {
-            md5_key = md5(evhttp_request_get_uri(ev_req));
+            md5_key = std::move(md5(evhttp_request_get_uri(ev_req)));
             if (item->cache->exists(md5_key)) {
                 const cache_ele_t& cache_ele = item->cache->get(md5_key);
                 const char* if_modified_since = evhttp_find_header(ev_input_headers, "If-Modified-Since");
@@ -437,21 +438,21 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                     if (gzip::is_compressed(content, content_len)) {
                         if (gzip_header) {
                             res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
-                            res.content = cache_ele.content;
+                            res.content = std::move(cache_ele.content);
                         } else {
-                            res.content = gzip::decompress(content, content_len);
+                            res.content = std::move(gzip::decompress(content, content_len));
                         }
                     } else {
                         if (gzip_header && ENABLE_GZIP && item->gzip && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
-                            res.content = gzip::compress(content, content_len, GZIP_LEVEL);
+                            res.content = std::move(gzip::compress(content, content_len, GZIP_LEVEL));
                             res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
                         } else {
-                            res.content = cache_ele.content;
+                            res.content = std::move(cache_ele.content);
                         }
                     }
 
                     res.status = cache_ele.status;
-                    res.headers.find("Content-Type")->second = cache_ele.content_type;
+                    res.headers.find("Content-Type")->second = std::move(cache_ele.content_type);
                     res.status = cache_ele.status;
 
                     for (auto&header : res.headers) {
@@ -480,25 +481,25 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
 
             enum evhttp_cmd_type req_method = evhttp_request_get_command(ev_req);
             switch (req_method) {
-                case EVHTTP_REQ_GET:req.method = "GET";
+                case EVHTTP_REQ_GET:req.method = std::move("GET");
                     break;
-                case EVHTTP_REQ_POST:req.method = "POST";
+                case EVHTTP_REQ_POST:req.method = std::move("POST");
                     break;
-                case EVHTTP_REQ_HEAD:req.method = "HEAD";
+                case EVHTTP_REQ_HEAD:req.method = std::move("HEAD");
                     break;
-                case EVHTTP_REQ_DELETE:req.method = "DELETE";
+                case EVHTTP_REQ_DELETE:req.method = std::move("DELETE");
                     break;
-                case EVHTTP_REQ_PUT:req.method = "PUT";
+                case EVHTTP_REQ_PUT:req.method = std::move("PUT");
                     break;
-                case EVHTTP_REQ_OPTIONS:req.method = "OPTIONS";
+                case EVHTTP_REQ_OPTIONS:req.method = std::move("OPTIONS");
                     break;
-                case EVHTTP_REQ_TRACE:req.method = "TRACE";
+                case EVHTTP_REQ_TRACE:req.method = std::move("TRACE");
                     break;
-                case EVHTTP_REQ_CONNECT:req.method = "CONNECT";
+                case EVHTTP_REQ_CONNECT:req.method = std::move("CONNECT");
                     break;
-                case EVHTTP_REQ_PATCH:req.method = "PATCH";
+                case EVHTTP_REQ_PATCH:req.method = std::move("PATCH");
                     break;
-                default:req.method = "unknown";
+                default:req.method = std::move("unknown");
                     break;
             }
             if (item->header) {
@@ -541,7 +542,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                                 std::string upload_file_name = item.second->GetFileName(), ext;
                                 std::string::size_type p = upload_file_name.find_last_of(".");
                                 if (p != std::string::npos) {
-                                    ext = upload_file_name.substr(p);
+                                    ext = std::move(upload_file_name.substr(p));
                                 }
                                 std::string temp_file = TEMP_DIRECTORY + "/" + random_string(req.client + item.second->GetFileName()).append(ext);
                                 rename(item.second->GetTempFileName().c_str(), temp_file.c_str());
@@ -554,6 +555,12 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                         res.status = 500;
                         goto done;
                     }
+                }
+            }
+            if (item->max_match_size >= 1) {
+                size_t cur_match = 0;
+                for (auto& match_item : matches) {
+                    req.form.insert(std::make_pair(std::move(std::string("\\").append(std::move(std::to_string(cur_match++)))), match_item));
                 }
             }
 
@@ -590,7 +597,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                 size_t content_len = res.content.size();
                 if (gzip_header && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
                     res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
-                    res.content = gzip::compress(content, content_len, GZIP_LEVEL);
+                    res.content = std::move(gzip::compress(content, content_len, GZIP_LEVEL));
                 }
             }
 
@@ -602,9 +609,9 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
 
             if (item->cache) {
                 cache_ele_t cache_new_ele;
-                cache_new_ele.content = res.content;
+                cache_new_ele.content = std::move(res.content);
                 cache_new_ele.status = res.status;
-                cache_new_ele.content_type = res.headers.find("Content-Type")->second;
+                cache_new_ele.content_type = std::move(res.headers.find("Content-Type")->second);
                 cache_new_ele.t = time(NULL);
                 item->cache->put(md5_key, cache_new_ele);
                 evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&cache_new_ele.t).c_str());
@@ -614,7 +621,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
             }
         }
     } else if (ENABLE_STATIC_SERVER) {
-        std::string full_path = ROOT + req.uri;
+        std::string full_path = std::move(ROOT + req.uri);
         struct stat st;
         int s_t = stat(full_path.c_str(), &st);
         if (s_t >= 0) {

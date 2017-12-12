@@ -27,13 +27,13 @@ namespace hi {
             if (p == std::string::npos) {
                 q = data.find(cc, start);
                 if (q != std::string::npos) {
-                    result[trim(data.substr(start, q - start))] = std::move(trim(data.substr(q + 1)));
+                    result[std::move(trim(data.substr(start, q - start)))] = std::move(trim(data.substr(q + 1)));
                 }
                 break;
             } else {
                 q = data.find(cc, start);
                 if (q != std::string::npos) {
-                    result[trim(data.substr(start, q - start))] = std::move(trim(data.substr(q + 1, p - q - 1)));
+                    result[std::move(trim(data.substr(start, q - start)))] = std::move(trim(data.substr(q + 1, p - q - 1)));
                 }
                 start = p + 1;
             }

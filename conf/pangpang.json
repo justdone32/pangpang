@@ -1,5 +1,5 @@
 {
-    "daemon": true,
+    "daemon": false,
     "multiprocess": {
         "enable": true,
         "cpu_affinity": true,
@@ -30,6 +30,7 @@
     "temp_directory": "temp",
     "route": [{
             "pattern": "hello",
+            "max_match_size": 0,
             "module": "mod/hello.so",
             "cache": {
                 "enable": true,
@@ -43,6 +44,7 @@
         },
         {
             "pattern": "form",
+            "max_match_size": 10,
             "module": "mod/form.so",
             "cache": {
                 "enable": false,
@@ -56,6 +58,7 @@
         },
         {
             "pattern": "session",
+            "max_match_size": 0,
             "module": "mod/session.so",
             "cache": {
                 "enable": false,
