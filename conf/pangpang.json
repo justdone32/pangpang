@@ -1,5 +1,5 @@
 {
-    "daemon": false,
+    "daemon": true,
     "multiprocess": {
         "enable": true,
         "cpu_affinity": true,
