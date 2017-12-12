@@ -62,7 +62,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.8.5"
+#define PANGPANG                "pangpang/0.8.6"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
@@ -73,6 +73,7 @@
 struct cache_ele_t {
     int status = 200;
     time_t t;
+    bool gzip = false;
     std::string content_type, content;
 };
 
@@ -407,10 +408,10 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
     hi::request req;
     hi::response res;
 
-    req.uri = std::move(evhttp_uri_get_path(ev_uri));
-    std::vector<std::string> matches;
+    req.uri = evhttp_uri_get_path(ev_uri);
+    std::list<std::string> matches;
     auto item_iterator = std::find_if(PLUGIN.begin(), PLUGIN.end(), [&](std::shared_ptr<route_ele_t>& i) {
-        return i->max_match_size >= 1 ? i->cregex->match_and_get(req.uri, matches, i->max_match_size) : i->cregex->match(req.uri);
+        return i->cregex->match_and_get(req.uri, matches, i->max_match_size);
     });
     if (item_iterator != PLUGIN.end()) {
         auto item = *item_iterator;
@@ -435,25 +436,19 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                     const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding"),
                             *content = cache_ele.content.c_str();
                     size_t content_len = cache_ele.content.size();
-                    if (gzip::is_compressed(content, content_len)) {
+                    if (cache_ele.gzip) {
                         if (gzip_header) {
                             res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
-                            res.content = std::move(cache_ele.content);
+                            res.content = cache_ele.content;
                         } else {
                             res.content = std::move(gzip::decompress(content, content_len));
                         }
                     } else {
-                        if (gzip_header && ENABLE_GZIP && item->gzip && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
-                            res.content = std::move(gzip::compress(content, content_len, GZIP_LEVEL));
-                            res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
-                        } else {
-                            res.content = std::move(cache_ele.content);
-                        }
+                        res.content = cache_ele.content;
                     }
 
                     res.status = cache_ele.status;
-                    res.headers.find("Content-Type")->second = std::move(cache_ele.content_type);
-                    res.status = cache_ele.status;
+                    res.headers.find("Content-Type")->second = cache_ele.content_type;
 
                     for (auto&header : res.headers) {
                         evhttp_add_header(ev_output_headers, header.first.c_str(), header.second.c_str());
@@ -477,7 +472,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
             }
 
             const char* user_agent = evhttp_find_header(ev_req->input_headers, "User-Agent");
-            req.user_agent = user_agent ? user_agent : "xxx";
+            req.user_agent = user_agent ? user_agent : std::move("xxx");
 
             enum evhttp_cmd_type req_method = evhttp_request_get_command(ev_req);
             switch (req_method) {
@@ -557,7 +552,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                     }
                 }
             }
-            if (item->max_match_size >= 1) {
+            if (item->max_match_size > 1) {
                 size_t cur_match = 0;
                 for (auto& match_item : matches) {
                     req.form.insert(std::make_pair(std::move(std::string("\\").append(std::move(std::to_string(cur_match++)))), match_item));
@@ -591,13 +586,14 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
 
             instance->handler(req, res);
 
-            if (ENABLE_GZIP && item->gzip) {
-                const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding"),
-                        *content = res.content.c_str();
-                size_t content_len = res.content.size();
-                if (gzip_header && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
+            bool gziped = false;
+            size_t content_len = res.content.size();
+            if (ENABLE_GZIP && item->gzip && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
+                const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding");
+                if (gzip_header) {
                     res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
-                    res.content = std::move(gzip::compress(content, content_len, GZIP_LEVEL));
+                    res.content = std::move(gzip::compress(res.content.c_str(), content_len, GZIP_LEVEL));
+                    gziped = true;
                 }
             }
 
@@ -609,9 +605,12 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
 
             if (item->cache) {
                 cache_ele_t cache_new_ele;
-                cache_new_ele.content = std::move(res.content);
+                if (gziped) {
+                    cache_new_ele.gzip = true;
+                }
+                cache_new_ele.content = res.content;
                 cache_new_ele.status = res.status;
-                cache_new_ele.content_type = std::move(res.headers.find("Content-Type")->second);
+                cache_new_ele.content_type = res.headers.find("Content-Type")->second;
                 cache_new_ele.t = time(NULL);
                 item->cache->put(md5_key, cache_new_ele);
                 evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&cache_new_ele.t).c_str());
@@ -630,7 +629,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                     res.content = list_dir(full_path);
                     res.status = 200;
                 } else {
-                    res.content = "<p style='text-align:center;margin:100px;'>403 Forbidden</p>";
+                    res.content = std::move("<p style='text-align:center;margin:100px;'>403 Forbidden</p>");
                     res.status = 403;
                 }
             } else if (S_ISREG(st.st_mode)) {
@@ -676,7 +675,7 @@ static inline bool is_dir(const std::string& s) {
 
 static inline std::string list_dir(const std::string& path) {
 
-    std::string list_content = "<!DOCTYPE html>"
+    std::string list_content = std::move("<!DOCTYPE html>"
             "<html>"
             "<head>"
             "<style>"
@@ -694,7 +693,7 @@ static inline std::string list_dir(const std::string& path) {
             "</ul>"
             "</div>"
             "</body>"
-            "</html>";
+            "</html>");
     kainjow::mustache::mustache render_engine(list_content);
     kainjow::mustache::data list{kainjow::mustache::data::type::list};
 

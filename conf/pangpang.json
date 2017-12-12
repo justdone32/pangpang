@@ -33,7 +33,7 @@
             "max_match_size": 0,
             "module": "mod/hello.so",
             "cache": {
-                "enable": true,
+                "enable": false,
                 "expires": 300,
                 "size": 30
             },
@@ -44,7 +44,7 @@
         },
         {
             "pattern": "form",
-            "max_match_size": 10,
+            "max_match_size": 3,
             "module": "mod/form.so",
             "cache": {
                 "enable": false,
