@@ -79,7 +79,7 @@ see `conf/pangpang.json` and `conf/pattern.conf`
     "multiprocess": {
         "enable": true,
         "cpu_affinity": true,
-        "size": 3
+        "size": 1
     },
     "host": "127.0.0.1",
     "port": 9000,
@@ -106,9 +106,10 @@ see `conf/pangpang.json` and `conf/pattern.conf`
     "temp_directory": "temp",
     "route": [{
             "pattern": "hello",
+            "max_match_size": 0,
             "module": "mod/hello.so",
             "cache": {
-                "enable": true,
+                "enable": false,
                 "expires": 300,
                 "size": 30
             },
@@ -119,6 +120,7 @@ see `conf/pangpang.json` and `conf/pattern.conf`
         },
         {
             "pattern": "form",
+            "max_match_size": 3,
             "module": "mod/form.so",
             "cache": {
                 "enable": false,
@@ -132,6 +134,7 @@ see `conf/pangpang.json` and `conf/pattern.conf`
         },
         {
             "pattern": "session",
+            "max_match_size": 0,
             "module": "mod/session.so",
             "cache": {
                 "enable": false,
@@ -197,7 +200,8 @@ see `conf/pangpang.json` and `conf/pattern.conf`
             }
         ]
     }
-} 
+}
+
 ```
 ### Route pattern configure
 ```

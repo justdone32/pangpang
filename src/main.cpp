@@ -657,7 +657,6 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
     }
 done:
     evhttp_add_header(ev_output_headers, "Server", PANGPANG);
-    evhttp_add_header(ev_output_headers, "Connection", "keep-alive");
     evbuffer_add(ev_res, res.content.c_str(), res.content.size());
     evhttp_send_reply(ev_req, res.status, NULL, ev_res);
 
