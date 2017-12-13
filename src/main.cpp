@@ -62,7 +62,7 @@
 
 
 
-#define PANGPANG                "pangpang/0.8.6"
+#define PANGPANG                "pangpang/0.8.7"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define PID_FILE                "logs/pangpang.pid"
@@ -137,7 +137,9 @@ static inline struct bufferevent* bevcb(struct event_base *base, void *arg);
 static inline int server_setup_certs(SSL_CTX *ctx,
         const char *certificate_chain,
         const char *private_key);
-static inline int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh, struct evhttp *server, const char *certificate_chain,
+static inline int initailize_ssl(SSL_CTX *ctx, EC_KEY *ecdh,
+        struct evhttp *server,
+        const char *certificate_chain,
         const char *private_key);
 
 static inline bool is_file(const std::string& s);
@@ -433,15 +435,13 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                 if (difftime(now, cache_ele.t) >= item->expires) {
                     item->cache->erase(md5_key);
                 } else {
-                    const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding"),
-                            *content = cache_ele.content.c_str();
-                    size_t content_len = cache_ele.content.size();
                     if (cache_ele.gzip) {
-                        if (gzip_header) {
+                        const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding");
+                        if (gzip_header && strstr(gzip_header, "gzip") != NULL) {
                             res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
                             res.content = cache_ele.content;
                         } else {
-                            res.content = std::move(gzip::decompress(content, content_len));
+                            res.content = std::move(gzip::decompress(cache_ele.content.c_str(), cache_ele.content.size()));
                         }
                     } else {
                         res.content = cache_ele.content;
@@ -590,7 +590,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
             size_t content_len = res.content.size();
             if (ENABLE_GZIP && item->gzip && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
                 const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding");
-                if (gzip_header) {
+                if (gzip_header && strstr(gzip_header, "gzip") != NULL) {
                     res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
                     res.content = std::move(gzip::compress(res.content.c_str(), content_len, GZIP_LEVEL));
                     gziped = true;

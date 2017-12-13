@@ -17,8 +17,8 @@
     "timeout": 60,
     "gzip": {
         "enable": true,
-        "min_size": 1024,
-        "max_size": 2048,
+        "min_size": 51200,
+        "max_size": 307200,
         "level": -1
     },
     "session": {
