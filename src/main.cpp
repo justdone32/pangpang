@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <sys/mman.h>
 
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
@@ -44,46 +45,13 @@
 #include <unordered_map>
 
 
-#include "inc/request.hpp"
-#include "inc/response.hpp"
-#include "inc/servlet.hpp"
-#include "inc/mustache.hpp"
-#include "lib/module_class.hpp"
-#include "lib/lrucache.hpp"
-#include "lib/redis.hpp"
-#include "lib/json11.hpp"
-#include "lib/param.hpp"
-#include "lib/MPFDParser-1.1.1/Parser.h"
-#include "lib/datetime.hpp"
-#include "lib/cregex.hpp"
-#include "lib/gzip.hpp"
+
+#include "config.hpp"
 
 
 
 
-
-#define PANGPANG                "pangpang/0.8.7"
-#define CONFIG_FILE             "conf/pangpang.json"
-#define PATTERN_FILE            "conf/pattern.conf"
-#define PID_FILE                "logs/pangpang.pid"
-#define LOGS_ACCESS_FILE        "logs/access.log"
-#define LOGS_ERROR_FILE         "logs/error.log"
-#define SESSION_ID_NAME         "SESSIONID"
-
-struct cache_ele_t {
-    int status = 200;
-    time_t t;
-    bool gzip = false;
-    std::string content_type, content;
-};
-
-struct route_ele_t {
-    std::shared_ptr<hi::cregex> cregex;
-    std::shared_ptr<hi::module_class<hi::servlet>> module;
-    std::shared_ptr<hi::cache::lru_cache<std::string, cache_ele_t>> cache;
-    size_t expires, max_match_size;
-    bool session, gzip, header, cookie;
-};
+static pangpang::config PANGPANG_CONFIG;
 
 typedef void (*CB_FUNC)(struct evhttp_request *, void *);
 static CB_FUNC CB = 0;
@@ -93,38 +61,6 @@ static struct evhttp *SERVER = 0;
 static SSL_CTX *CTX = 0;
 static EC_KEY *ECDH = 0;
 
-static bool DAEMON = false,
-        ENABLE_SSL = false,
-        ENABLE_STATIC_SERVER = false,
-        ENABLE_LIST_DIRECTORY = false,
-        ENABLE_SESSION = false,
-        ENABLE_GZIP = true,
-        ENABLE_MULTIPROCESS = true,
-        CPU_AFFINITY = true;
-
-static int PORT = 9000, TIMEOUT = 60,
-        REDIS_PORT = 6379,
-        GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
-static std::string HOST = "127.0.0.1",
-        REDIS_HOST = "127.0.0.1",
-        ROOT = "html",
-        DEFAULT_CONTENT_TYPE = "text/html",
-        CERT_CERTIFICATE_FILE,
-        CERT_PRIVATE_KEY_FILE,
-        TEMP_DIRECTORY = "temp";
-
-static size_t MAX_HEADERS_SIZE = 8192,
-        MAX_BODY_SIZE = 1048567,
-        SESSION_EXPIRES = 600,
-        GZIP_MIN_SIZE = 1024,
-        GZIP_MAX_SIZE = 2048,
-        PROCESS_SIZE = 0;
-
-static std::vector<pid_t> PIDS;
-
-static std::list<std::shared_ptr<route_ele_t>> PLUGIN;
-static std::unordered_map<std::string, std::string> MIME;
-static std::shared_ptr<hi::redis> REDIS;
 
 static inline bool initailize_config(const std::string& path);
 static inline void signal_normal_cb(int sig);
@@ -160,7 +96,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    if (DAEMON && daemon(1, 0)) {
+    if (PANGPANG_CONFIG.DAEMON && daemon(1, 0)) {
         exit(EXIT_FAILURE);
     }
 
@@ -180,23 +116,23 @@ int main(int argc, char** argv) {
     SERVER = evhttp_new(BASE);
 
 
-    if (ENABLE_SSL) {
-        if (!initailize_ssl(CTX, ECDH, SERVER, CERT_CERTIFICATE_FILE.c_str(), CERT_PRIVATE_KEY_FILE.c_str())) {
+    if (PANGPANG_CONFIG.ENABLE_SSL) {
+        if (!initailize_ssl(CTX, ECDH, SERVER, PANGPANG_CONFIG.CERT_CERTIFICATE_FILE.c_str(), PANGPANG_CONFIG.CERT_PRIVATE_KEY_FILE.c_str())) {
             goto stop_server;
         }
     }
 
 
 
-    evhttp_bind_socket(SERVER, HOST.c_str(), PORT);
+    evhttp_bind_socket(SERVER, PANGPANG_CONFIG.HOST.c_str(), PANGPANG_CONFIG.PORT);
 
     CB = generic_request_handler;
 
     evhttp_set_gencb(SERVER, CB, NULL);
-    evhttp_set_default_content_type(SERVER, DEFAULT_CONTENT_TYPE.c_str());
-    evhttp_set_timeout(SERVER, TIMEOUT);
-    evhttp_set_max_headers_size(SERVER, MAX_HEADERS_SIZE);
-    evhttp_set_max_body_size(SERVER, MAX_BODY_SIZE);
+    evhttp_set_default_content_type(SERVER, PANGPANG_CONFIG.DEFAULT_CONTENT_TYPE.c_str());
+    evhttp_set_timeout(SERVER, PANGPANG_CONFIG.TIMEOUT);
+    evhttp_set_max_headers_size(SERVER, PANGPANG_CONFIG.MAX_HEADERS_SIZE);
+    evhttp_set_max_body_size(SERVER, PANGPANG_CONFIG.MAX_BODY_SIZE);
 
 
     signal(SIGHUP, signal_normal_cb);
@@ -206,12 +142,12 @@ int main(int argc, char** argv) {
     signal(SIGKILL, signal_normal_cb);
 
 
-    if (ENABLE_MULTIPROCESS) {
+    if (PANGPANG_CONFIG.ENABLE_MULTIPROCESS) {
 
-        if (PROCESS_SIZE == 0) {
-            PROCESS_SIZE = get_cpu_count() - 1;
+        if (PANGPANG_CONFIG.PROCESS_SIZE == 0) {
+            PANGPANG_CONFIG.PROCESS_SIZE = get_cpu_count() - 1;
         }
-        forker(PROCESS_SIZE, BASE);
+        forker(PANGPANG_CONFIG.PROCESS_SIZE, BASE);
     }
 
 
@@ -231,26 +167,26 @@ static inline bool initailize_config(const std::string& path) {
             std::string err;
             json11::Json conf = json11::Json::parse(json_content, err);
             if (err.empty()) {
-                DAEMON = conf["daemon"].bool_value();
-                ENABLE_MULTIPROCESS = conf["multiprocess"]["enable"].bool_value();
-                if (ENABLE_MULTIPROCESS) {
+                PANGPANG_CONFIG.DAEMON = conf["daemon"].bool_value();
+                PANGPANG_CONFIG.ENABLE_MULTIPROCESS = conf["multiprocess"]["enable"].bool_value();
+                if (PANGPANG_CONFIG.ENABLE_MULTIPROCESS) {
                     int process_len = conf["multiprocess"]["size"].int_value();
                     if (process_len >= 0) {
-                        PROCESS_SIZE = static_cast<size_t> (process_len);
+                        PANGPANG_CONFIG.PROCESS_SIZE = static_cast<size_t> (process_len);
                     } else {
-                        PROCESS_SIZE = 0;
+                        PANGPANG_CONFIG.PROCESS_SIZE = 0;
                     }
-                    CPU_AFFINITY = conf["multiprocess"]["cpu_affinity"].bool_value();
+                    PANGPANG_CONFIG.CPU_AFFINITY = conf["multiprocess"]["cpu_affinity"].bool_value();
                 }
-                HOST = conf["host"].string_value();
-                PORT = conf["port"].int_value();
-                ENABLE_SSL = conf["ssl"]["enable"].bool_value();
-                CERT_CERTIFICATE_FILE = conf["ssl"]["cert"].string_value();
-                CERT_PRIVATE_KEY_FILE = conf["ssl"]["key"].string_value();
-                TEMP_DIRECTORY = conf["temp_directory"].string_value();
-                MAX_HEADERS_SIZE = static_cast<size_t> (conf["max_headers_size"].number_value());
-                MAX_BODY_SIZE = static_cast<size_t> (conf["max_body_size"].number_value());
-                TIMEOUT = conf["timeout"].int_value();
+                PANGPANG_CONFIG.HOST = conf["host"].string_value();
+                PANGPANG_CONFIG.PORT = conf["port"].int_value();
+                PANGPANG_CONFIG.ENABLE_SSL = conf["ssl"]["enable"].bool_value();
+                PANGPANG_CONFIG.CERT_CERTIFICATE_FILE = conf["ssl"]["cert"].string_value();
+                PANGPANG_CONFIG.CERT_PRIVATE_KEY_FILE = conf["ssl"]["key"].string_value();
+                PANGPANG_CONFIG.TEMP_DIRECTORY = conf["temp_directory"].string_value();
+                PANGPANG_CONFIG.MAX_HEADERS_SIZE = static_cast<size_t> (conf["max_headers_size"].number_value());
+                PANGPANG_CONFIG.MAX_BODY_SIZE = static_cast<size_t> (conf["max_body_size"].number_value());
+                PANGPANG_CONFIG.TIMEOUT = conf["timeout"].int_value();
 
                 std::ifstream is(PATTERN_FILE);
                 std::string line;
@@ -264,11 +200,11 @@ static inline bool initailize_config(const std::string& path) {
                     std::string pattern_name = item["pattern"].string_value(), pattern_value;
                     if (pattern.find(pattern_name) != pattern.end()) {
                         pattern_value = pattern[pattern_name];
-                        auto tmp = std::make_shared<route_ele_t>();
+                        auto tmp = std::make_shared<pangpang::route_ele_t>();
                         tmp->cregex = std::move(std::make_shared<hi::cregex>(pattern_value, true));
                         tmp->module = std::move(std::make_shared<hi::module_class < hi::servlet >> (item["module"].string_value()));
                         if (item["cache"]["enable"].bool_value()) {
-                            tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
+                            tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, pangpang::cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
                             tmp->expires = static_cast<size_t> (item["cache"]["expires"].number_value());
                         }
                         tmp->session = item["session"].bool_value();
@@ -277,35 +213,35 @@ static inline bool initailize_config(const std::string& path) {
                         tmp->cookie = item["cookie"].bool_value();
                         tmp->max_match_size = static_cast<size_t> (item["max_match_size"].int_value());
                         if (tmp->session&&!tmp->cookie)tmp->cookie = true;
-                        PLUGIN.push_back(std::move(tmp));
+                        PANGPANG_CONFIG.PLUGIN.push_back(std::move(tmp));
                     }
                 }
-                ENABLE_STATIC_SERVER = conf["static_server"]["enable"].bool_value();
-                if (ENABLE_STATIC_SERVER) {
-                    ROOT = conf["static_server"]["root"].string_value();
-                    DEFAULT_CONTENT_TYPE = conf["static_server"]["default_content_type"].string_value();
+                PANGPANG_CONFIG.ENABLE_STATIC_SERVER = conf["static_server"]["enable"].bool_value();
+                if (PANGPANG_CONFIG.ENABLE_STATIC_SERVER) {
+                    PANGPANG_CONFIG.ROOT = conf["static_server"]["root"].string_value();
+                    PANGPANG_CONFIG.DEFAULT_CONTENT_TYPE = conf["static_server"]["default_content_type"].string_value();
                     for (auto &item : conf["static_server"]["mime"].array_items()) {
-                        MIME[item["extension"].string_value()] = item["content_type"].string_value();
+                        PANGPANG_CONFIG.MIME[item["extension"].string_value()] = item["content_type"].string_value();
                     }
-                    ENABLE_LIST_DIRECTORY = conf["static_server"]["list_directory"].bool_value();
+                    PANGPANG_CONFIG.ENABLE_LIST_DIRECTORY = conf["static_server"]["list_directory"].bool_value();
                 }
-                ENABLE_SESSION = conf["session"]["enable"].bool_value();
-                if (ENABLE_SESSION) {
-                    REDIS_HOST = conf["session"]["host"].string_value();
-                    REDIS_PORT = conf["session"]["port"].int_value();
-                    REDIS = std::move(std::make_shared<hi::redis>());
-                    REDIS->connect(REDIS_HOST, REDIS_PORT);
-                    if (!REDIS->is_connected()) {
-                        ENABLE_SESSION = false;
+                PANGPANG_CONFIG.ENABLE_SESSION = conf["session"]["enable"].bool_value();
+                if (PANGPANG_CONFIG.ENABLE_SESSION) {
+                    PANGPANG_CONFIG.REDIS_HOST = conf["session"]["host"].string_value();
+                    PANGPANG_CONFIG.REDIS_PORT = conf["session"]["port"].int_value();
+                    PANGPANG_CONFIG.REDIS = std::move(std::make_shared<hi::redis>());
+                    PANGPANG_CONFIG.REDIS->connect(PANGPANG_CONFIG.REDIS_HOST, PANGPANG_CONFIG.REDIS_PORT);
+                    if (!PANGPANG_CONFIG.REDIS->is_connected()) {
+                        PANGPANG_CONFIG.ENABLE_SESSION = false;
                     }
                 }
-                ENABLE_GZIP = conf["gzip"]["enable"].bool_value();
-                if (ENABLE_GZIP) {
-                    GZIP_MIN_SIZE = static_cast<size_t> (conf["gzip"]["min_size"].number_value());
-                    GZIP_MAX_SIZE = static_cast<size_t> (conf["gzip"]["max_size"].number_value());
-                    GZIP_LEVEL = conf["gzip"]["level"].int_value();
-                    if (GZIP_LEVEL < Z_DEFAULT_COMPRESSION || GZIP_LEVEL > Z_BEST_COMPRESSION) {
-                        GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
+                PANGPANG_CONFIG.ENABLE_GZIP = conf["gzip"]["enable"].bool_value();
+                if (PANGPANG_CONFIG.ENABLE_GZIP) {
+                    PANGPANG_CONFIG.GZIP_MIN_SIZE = static_cast<size_t> (conf["gzip"]["min_size"].number_value());
+                    PANGPANG_CONFIG.GZIP_MAX_SIZE = static_cast<size_t> (conf["gzip"]["max_size"].number_value());
+                    PANGPANG_CONFIG.GZIP_LEVEL = conf["gzip"]["level"].int_value();
+                    if (PANGPANG_CONFIG.GZIP_LEVEL < Z_DEFAULT_COMPRESSION || PANGPANG_CONFIG.GZIP_LEVEL > Z_BEST_COMPRESSION) {
+                        PANGPANG_CONFIG.GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
                     }
                 }
                 return true;
@@ -412,16 +348,16 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
 
     req.uri = evhttp_uri_get_path(ev_uri);
     std::list<std::string> matches;
-    auto item_iterator = std::find_if(PLUGIN.begin(), PLUGIN.end(), [&](std::shared_ptr<route_ele_t>& i) {
+    auto item_iterator = std::find_if(PANGPANG_CONFIG.PLUGIN.begin(), PANGPANG_CONFIG.PLUGIN.end(), [&](std::shared_ptr<pangpang::route_ele_t>& i) {
         return i->cregex->match_and_get(req.uri, matches, i->max_match_size);
     });
-    if (item_iterator != PLUGIN.end()) {
+    if (item_iterator != PANGPANG_CONFIG.PLUGIN.end()) {
         auto item = *item_iterator;
         std::string md5_key;
         if (item->cache) {
             md5_key = std::move(md5(evhttp_request_get_uri(ev_req)));
             if (item->cache->exists(md5_key)) {
-                const cache_ele_t& cache_ele = item->cache->get(md5_key);
+                const pangpang::cache_ele_t& cache_ele = item->cache->get(md5_key);
                 const char* if_modified_since = evhttp_find_header(ev_input_headers, "If-Modified-Since");
                 if (if_modified_since) {
                     time_t if_modified_since_time = hi::parse_http_time((u_char*) if_modified_since, strlen(if_modified_since));
@@ -520,13 +456,13 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                         req.form.insert(std::make_pair(p->key, p->value));
                     }
                     evhttp_clear_headers(&param_list);
-                } else if (n > 0 && strstr(input_content_type, "multipart/form-data")&&(is_dir(TEMP_DIRECTORY)
-                        || mkdir(TEMP_DIRECTORY.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0)) {
+                } else if (n > 0 && strstr(input_content_type, "multipart/form-data")&&(is_dir(PANGPANG_CONFIG.TEMP_DIRECTORY)
+                        || mkdir(PANGPANG_CONFIG.TEMP_DIRECTORY.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0)) {
                     try {
                         std::shared_ptr<MPFD::Parser> POSTParser(new MPFD::Parser());
-                        POSTParser->SetTempDirForFileUpload(TEMP_DIRECTORY);
+                        POSTParser->SetTempDirForFileUpload(PANGPANG_CONFIG.TEMP_DIRECTORY);
                         POSTParser->SetUploadedFilesStorage(MPFD::Parser::StoreUploadedFilesInFilesystem);
-                        POSTParser->SetMaxCollectedDataLength(MAX_BODY_SIZE);
+                        POSTParser->SetMaxCollectedDataLength(PANGPANG_CONFIG.MAX_BODY_SIZE);
                         POSTParser->SetContentType(input_content_type);
                         POSTParser->AcceptSomeData(buf_data, n);
                         auto fields = POSTParser->GetFieldsMap();
@@ -539,7 +475,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                                 if (p != std::string::npos) {
                                     ext = std::move(upload_file_name.substr(p));
                                 }
-                                std::string temp_file = TEMP_DIRECTORY + "/" + random_string(req.client + item.second->GetFileName()).append(ext);
+                                std::string temp_file = PANGPANG_CONFIG.TEMP_DIRECTORY + "/" + random_string(req.client + item.second->GetFileName()).append(ext);
                                 rename(item.second->GetTempFileName().c_str(), temp_file.c_str());
                                 req.form.insert(std::make_pair(item.first, temp_file));
                             }
@@ -560,16 +496,16 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
             }
 
             std::string SESSION_ID_VALUE;
-            if (item->session && ENABLE_SESSION) {
+            if (item->session && PANGPANG_CONFIG.ENABLE_SESSION) {
                 auto session_id_value_iterator = req.cookies.find(SESSION_ID_NAME);
                 if (session_id_value_iterator != req.cookies.end()) {
                     SESSION_ID_VALUE = session_id_value_iterator->second;
-                    if (!REDIS->exists(SESSION_ID_VALUE)) {
-                        REDIS->hset(SESSION_ID_VALUE, SESSION_ID_NAME, SESSION_ID_VALUE);
-                        REDIS->expire(SESSION_ID_VALUE, SESSION_EXPIRES);
+                    if (!PANGPANG_CONFIG.REDIS->exists(SESSION_ID_VALUE)) {
+                        PANGPANG_CONFIG.REDIS->hset(SESSION_ID_VALUE, SESSION_ID_NAME, SESSION_ID_VALUE);
+                        PANGPANG_CONFIG.REDIS->expire(SESSION_ID_VALUE, PANGPANG_CONFIG.SESSION_EXPIRES);
                         res.session[SESSION_ID_NAME] = SESSION_ID_VALUE;
                     } else {
-                        REDIS->hgetall(SESSION_ID_VALUE, req.session);
+                        PANGPANG_CONFIG.REDIS->hgetall(SESSION_ID_VALUE, req.session);
                     }
                 } else {
                     std::string session_cookie_string(SESSION_ID_NAME);
@@ -588,11 +524,11 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
 
             bool gziped = false;
             size_t content_len = res.content.size();
-            if (ENABLE_GZIP && item->gzip && content_len >= GZIP_MIN_SIZE && content_len <= GZIP_MAX_SIZE) {
+            if (PANGPANG_CONFIG.ENABLE_GZIP && item->gzip && content_len >= PANGPANG_CONFIG.GZIP_MIN_SIZE && content_len <= PANGPANG_CONFIG.GZIP_MAX_SIZE) {
                 const char *gzip_header = evhttp_find_header(ev_input_headers, "Accept-Encoding");
                 if (gzip_header && strstr(gzip_header, "gzip") != NULL) {
                     res.headers.insert(std::make_pair("Content-Encoding", "gzip"));
-                    res.content = std::move(gzip::compress(res.content.c_str(), content_len, GZIP_LEVEL));
+                    res.content = std::move(gzip::compress(res.content.c_str(), content_len, PANGPANG_CONFIG.GZIP_LEVEL));
                     gziped = true;
                 }
             }
@@ -604,7 +540,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
             }
 
             if (item->cache) {
-                cache_ele_t cache_new_ele;
+                pangpang::cache_ele_t cache_new_ele;
                 if (gziped) {
                     cache_new_ele.gzip = true;
                 }
@@ -615,17 +551,17 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                 item->cache->put(md5_key, cache_new_ele);
                 evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&cache_new_ele.t).c_str());
             }
-            if (item->session && ENABLE_SESSION&&!SESSION_ID_VALUE.empty()) {
-                REDIS->hmset(SESSION_ID_VALUE, res.session);
+            if (item->session && PANGPANG_CONFIG.ENABLE_SESSION&&!SESSION_ID_VALUE.empty()) {
+                PANGPANG_CONFIG.REDIS->hmset(SESSION_ID_VALUE, res.session);
             }
         }
-    } else if (ENABLE_STATIC_SERVER) {
-        std::string full_path = std::move(ROOT + req.uri);
+    } else if (PANGPANG_CONFIG.ENABLE_STATIC_SERVER) {
+        std::string full_path = std::move(PANGPANG_CONFIG.ROOT + req.uri);
         struct stat st;
         int s_t = stat(full_path.c_str(), &st);
         if (s_t >= 0) {
             if (S_ISDIR(st.st_mode)) {
-                if (ENABLE_LIST_DIRECTORY) {
+                if (PANGPANG_CONFIG.ENABLE_LIST_DIRECTORY) {
                     res.content = list_dir(full_path);
                     res.status = 200;
                 } else {
@@ -698,13 +634,13 @@ static inline std::string list_dir(const std::string& path) {
 
     DIR * dir = opendir(path.c_str());
     std::string tmp_path;
-    size_t n = ROOT.size();
+    size_t n = PANGPANG_CONFIG.ROOT.size();
     struct dirent * entry;
     bool b = path.back() != '/';
     while ((entry = readdir(dir)) != NULL) {
         if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
             tmp_path = b ? path + "/" + entry->d_name : path + entry->d_name;
-            auto p = tmp_path.find(ROOT);
+            auto p = tmp_path.find(PANGPANG_CONFIG.ROOT);
             kainjow::mustache::data item;
             item.set("name", entry->d_name);
             item.set("href", tmp_path.substr(p + n));
@@ -728,11 +664,11 @@ static inline void read_file(const std::string& path, std::string& out) {
 
 static inline const std::string& content_type(const std::string& path) {
     auto p = path.find_last_of(".");
-    const std::string ext = path.substr(p + 1);
-    if (MIME.find(ext) != MIME.end()) {
-        return MIME[ext];
+    const std::string ext = std::move(path.substr(p + 1));
+    if (PANGPANG_CONFIG.MIME.find(ext) != PANGPANG_CONFIG.MIME.end()) {
+        return PANGPANG_CONFIG.MIME[ext];
     }
-    return MIME["*"];
+    return PANGPANG_CONFIG.MIME["*"];
 }
 
 static inline std::string md5(const std::string& str) {
@@ -774,19 +710,19 @@ static inline void forker(size_t nprocesses, struct event_base* base) {
             raise(SIGHUP);
         } else if (pid > 0) {
             //parent 
-            PIDS.push_back(pid);
+            PANGPANG_CONFIG.PIDS.push_back(pid);
             if (t != nprocesses - 1) {
                 forker(nprocesses - 1, base);
             } else {
                 int status;
                 pid_t ppid = getpid();
-                PIDS.push_back(ppid);
+                PANGPANG_CONFIG.PIDS.push_back(ppid);
                 waitpid(-ppid, &status, WNOHANG);
-                if (CPU_AFFINITY) {
+                if (PANGPANG_CONFIG.CPU_AFFINITY) {
                     size_t cpu_size = get_cpu_count();
                     for (size_t i = 0; i < cpu_size; ++i) {
-                        if (i <= PIDS.size() - 1) {
-                            process_bind_cpu(PIDS[i], i);
+                        if (i <= PANGPANG_CONFIG.PIDS.size() - 1) {
+                            process_bind_cpu(PANGPANG_CONFIG.PIDS[i], i);
                         }
                     }
                 }
@@ -811,8 +747,8 @@ static inline void stoper() {
     if (CTX) {
         SSL_CTX_free(CTX);
     }
-    PLUGIN.clear();
-    MIME.clear();
+    PANGPANG_CONFIG.PLUGIN.clear();
+    PANGPANG_CONFIG.MIME.clear();
     if (is_file(PID_FILE)) {
         remove(PID_FILE);
     }
