@@ -1,7 +1,12 @@
 PROJECT=bin/pangpang
-SRC=$(wildcard  src/lib/*.cpp src/lib/MPFDParser-1.1.1/*.cpp src/*.cpp)
-OBJ=$(patsubst %.cpp,%.o,$(SRC))
-CC=g++
+CPPSRC=$(shell find src -type f -name *.cpp)
+CPPOBJ=$(patsubst %.cpp,%.o,$(CPPSRC))
+CSRC=$(shell find src -type f -name *.c)
+COBJ=$(patsubst %.c,%.o,$(CSRC))
+OBJ=$(CPPOBJ)
+OBJ+=$(COBJ)
+
+CFLAGS=
 CXXFLAGS=-std=c++11 -O3 -Wall -Isrc/inc -Isrc/lib -Isrc/lib/MPFDParser-1.1.1 `pkg-config --cflags hiredis libevent_openssl openssl`
 LDLIBS=`pkg-config --libs hiredis libevent_openssl openssl` -lpcre -lz -lpthread -ldl
 
@@ -10,9 +15,17 @@ PREFIX=/usr/local/pangpang
 all:$(PROJECT)
 
 $(PROJECT):$(OBJ)
-	$(CC) -o $@ $^ $(CXXFLAGS) $(LDLIBS)
-	
+	g++ -o $@ $^ $(LDLIBS)
+
+.c.o:
+	gcc $(CFLAGS) -c $^ -o $@
+
+.cpp.o:
+	g++ $(CXXFLAGS)  -c $^ -o $@
+
+
 clean:
+	@for i in $(OBJ);do echo $${i} ;done
 	rm -f $(PROJECT) $(OBJ)
 
 install:

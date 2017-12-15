@@ -1,6 +1,53 @@
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
+#include <stdlib.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <sched.h>
+#include <sys/sysinfo.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <sys/mman.h>
+
+#include <openssl/ssl.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+#include <openssl/bio.h>
+#include <openssl/md5.h>
+#include <openssl/x509v3.h>
+
+#include <event2/event-config.h>
+#include <event2/event.h>
+#include <event2/event_compat.h>
+#include <event2/event_struct.h>
+#include <event2/http.h>
+#include <event2/http_struct.h>
+#include <event2/http_compat.h>
+#include <event2/buffer.h>
+#include <event2/bufferevent.h>
+#include <event2/bufferevent_struct.h>
+#include <event2/bufferevent_ssl.h>
+#include <event2/util.h>
+#include <event2/keyvalq_struct.h>
+#include <event2/thread.h>
+#include <utility>
+#include <list>
+#include <string>
+#include <vector>
+#include <memory>
+#include <fstream>
+#include <iostream>
+#include <functional>
+#include <map>
+#include <unordered_map>
+
+
 #include "inc/request.hpp"
 #include "inc/response.hpp"
 #include "inc/servlet.hpp"
