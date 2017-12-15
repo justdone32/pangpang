@@ -44,7 +44,7 @@
         },
         {
             "pattern": "form",
-            "max_match_size": 3,
+            "max_match_size": 30,
             "module": "mod/form.so",
             "cache": {
                 "enable": false,

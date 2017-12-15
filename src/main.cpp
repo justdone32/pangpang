@@ -201,7 +201,7 @@ static inline bool initailize_config(const std::string& path) {
                     if (pattern.find(pattern_name) != pattern.end()) {
                         pattern_value = pattern[pattern_name];
                         auto tmp = std::make_shared<pangpang::route_ele_t>();
-                        tmp->cregex = std::move(std::make_shared<hi::cregex>(pattern_value, true));
+                        tmp->cregex = std::move(std::make_shared<hi::cregex>(pattern_value));
                         tmp->module = std::move(std::make_shared<hi::module_class < hi::servlet >> (item["module"].string_value()));
                         if (item["cache"]["enable"].bool_value()) {
                             tmp->cache = std::move(std::make_shared<hi::cache::lru_cache < std::string, pangpang::cache_ele_t >> (static_cast<size_t> (item["cache"]["size"].number_value())));
@@ -349,7 +349,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
     req.uri = evhttp_uri_get_path(ev_uri);
     std::list<std::string> matches;
     auto item_iterator = std::find_if(PANGPANG_CONFIG.PLUGIN.begin(), PANGPANG_CONFIG.PLUGIN.end(), [&](std::shared_ptr<pangpang::route_ele_t>& i) {
-        return i->cregex->match_and_get(req.uri, matches, i->max_match_size);
+        return i->cregex->match(req.uri, matches, i->max_match_size);
     });
     if (item_iterator != PANGPANG_CONFIG.PLUGIN.end()) {
         auto item = *item_iterator;
