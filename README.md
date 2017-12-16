@@ -8,6 +8,8 @@ High performance web server and application server for c++
 
 pangpang-0.8.8, 2 process VS nginx-1.13.7,2 workprocess
 
+static file: nginx index.html
+
 ![ab](https://github.com/webcpp/pangpang/blob/master/html/ab.jpg)
 
 ![ab -k](https://github.com/webcpp/pangpang/blob/master/html/abk.jpg)
