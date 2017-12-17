@@ -1,6 +1,10 @@
 PROJECT=bin/pangpang
 CPPSRC=$(shell find src -type f -name *.cpp)
+CCSRC+=$(shell find src -type f -name *.cc)
+CXXSRC+=$(shell find src -type f -name *.cxx)
 CPPOBJ=$(patsubst %.cpp,%.o,$(CPPSRC))
+CPPOBJ+=$(patsubst %.cc,%.o,$(CCSRC))
+CPPOBJ+=$(patsubst %.cxx,%.o,$(CXXSRC))
 CSRC=$(shell find src -type f -name *.c)
 COBJ=$(patsubst %.c,%.o,$(CSRC))
 OBJ=$(CPPOBJ)

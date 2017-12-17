@@ -62,8 +62,9 @@
 #include "lib/cregex.hpp"
 #include "lib/gzip.hpp"
 #include "lib/zlog/zlog.h"
+#include "lib/fmt/format.h"
 
-#define PANGPANG                "pangpang/0.9.0"
+#define PANGPANG                "pangpang/0.9.1"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
 #define ZLOG_CONFIG_FILE        "conf/zlog.conf"

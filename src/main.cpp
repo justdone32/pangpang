@@ -733,5 +733,14 @@ static inline int process_bind_cpu(pid_t pid, int cpu) {
 }
 
 static inline void log(hi::request& req, hi::response& res) {
-    zlog_info(LOGGER, (std::to_string(getpid()) + " " + req.client + " " + req.method + " " + req.uri + " " + req.user_agent + " " + std::to_string(res.status) + " " + std::to_string(res.content.size())).c_str());
+    zlog_info(LOGGER, fmt::format("{0} {1} {2} {3} {4} {5} {6} {7}",
+            getpid(),
+            req.client,
+            req.method,
+            req.uri,
+            req.param,
+            req.user_agent,
+            res.status,
+            res.content.size()
+            ).c_str());
 }
