@@ -292,6 +292,8 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
             *ev_input_headers = evhttp_request_get_input_headers(ev_req);
     const struct evhttp_uri *ev_uri = evhttp_request_get_evhttp_uri(ev_req);
 
+    evhttp_add_header(ev_output_headers, "Server", PANGPANG);
+    
     hi::request req;
     hi::response res;
 
@@ -533,15 +535,13 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                 }
                 evbuffer_add_file(ev_res, file, 0, st.st_size);
                 evhttp_add_header(ev_output_headers, "Content-Type", content_type(full_path).c_str());
-                evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&st.st_mtim.tv_sec).c_str());
-                evhttp_add_header(ev_output_headers, "Server", PANGPANG);
+                evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&st.st_mtim.tv_sec).c_str());  
                 evhttp_send_reply(ev_req, 200, "OK", ev_res);
                 return;
             }
         }
     }
 done:
-    evhttp_add_header(ev_output_headers, "Server", PANGPANG);
     evbuffer_add(ev_res, res.content.c_str(), res.content.size());
     evhttp_send_reply(ev_req, res.status, NULL, ev_res);
 
