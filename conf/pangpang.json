@@ -27,6 +27,7 @@
         "port": 6379,
         "expires": 600
     },
+    "log": true,
     "temp_directory": "temp",
     "route": [{
             "pattern": "hello",
@@ -40,7 +41,8 @@
             "session": false,
             "header": false,
             "cookie": false,
-            "gzip": false
+            "gzip": false,
+            "log": false
         },
         {
             "pattern": "form",
@@ -54,7 +56,8 @@
             "session": false,
             "header": true,
             "cookie": true,
-            "gzip": false
+            "gzip": false,
+            "log": false
         },
         {
             "pattern": "session",
@@ -68,7 +71,8 @@
             "session": true,
             "header": false,
             "cookie": true,
-            "gzip": false
+            "gzip": false,
+            "log": true
         }
     ],
     "static_server": {

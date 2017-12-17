@@ -1,6 +1,7 @@
 #include "config.hpp"
 
 static pangpang::config PANGPANG_CONFIG;
+static zlog_category_t *LOGGER = 0;
 
 typedef void (*CB_FUNC)(struct evhttp_request *, void *);
 static CB_FUNC CB = 0;
@@ -39,9 +40,19 @@ static inline void worker();
 static inline void stoper();
 static inline size_t get_cpu_count();
 static inline int process_bind_cpu(pid_t pid, int cpu);
+static inline void log(hi::request& req, hi::response& res);
 
 int main(int argc, char** argv) {
     if (!initailize_config(CONFIG_FILE)) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (zlog_init(ZLOG_CONFIG_FILE)) {
+        exit(EXIT_FAILURE);
+    }
+
+    LOGGER = zlog_get_category("pangpang");
+    if (LOGGER == MAP_FAILED) {
         exit(EXIT_FAILURE);
     }
 
@@ -160,6 +171,7 @@ static inline bool initailize_config(const std::string& path) {
                         tmp->gzip = item["gzip"].bool_value();
                         tmp->header = item["header"].bool_value();
                         tmp->cookie = item["cookie"].bool_value();
+                        tmp->log = item["log"].bool_value();
                         tmp->max_match_size = static_cast<size_t> (item["max_match_size"].int_value());
                         if (tmp->session&&!tmp->cookie)tmp->cookie = true;
                         PANGPANG_CONFIG.PLUGIN.push_back(std::move(tmp));
@@ -193,6 +205,7 @@ static inline bool initailize_config(const std::string& path) {
                         PANGPANG_CONFIG.GZIP_LEVEL = Z_DEFAULT_COMPRESSION;
                     }
                 }
+                PANGPANG_CONFIG.ENABLE_LOG = conf["log"].bool_value();
                 return true;
             }
         }
@@ -293,7 +306,8 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
     const struct evhttp_uri *ev_uri = evhttp_request_get_evhttp_uri(ev_req);
 
     evhttp_add_header(ev_output_headers, "Server", PANGPANG);
-    
+    bool route_ele_log = false;
+
     hi::request req;
     hi::response res;
 
@@ -304,6 +318,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
     });
     if (item_iterator != PANGPANG_CONFIG.PLUGIN.end()) {
         auto item = *item_iterator;
+        route_ele_log = item->log;
         std::string md5_key;
         if (item->cache) {
             md5_key = std::move(md5(evhttp_request_get_uri(ev_req)));
@@ -535,7 +550,7 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
                 }
                 evbuffer_add_file(ev_res, file, 0, st.st_size);
                 evhttp_add_header(ev_output_headers, "Content-Type", content_type(full_path).c_str());
-                evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&st.st_mtim.tv_sec).c_str());  
+                evhttp_add_header(ev_output_headers, "Last-Modified", hi::http_time(&st.st_mtim.tv_sec).c_str());
                 evhttp_send_reply(ev_req, 200, "OK", ev_res);
                 return;
             }
@@ -544,7 +559,9 @@ static inline void generic_request_handler(struct evhttp_request *ev_req, void *
 done:
     evbuffer_add(ev_res, res.content.c_str(), res.content.size());
     evhttp_send_reply(ev_req, res.status, NULL, ev_res);
-
+    if (PANGPANG_CONFIG.ENABLE_LOG && route_ele_log) {
+        log(req, res);
+    }
 }
 
 static inline bool is_file(const std::string& s) {
@@ -687,6 +704,7 @@ static inline void worker() {
 }
 
 static inline void stoper() {
+    zlog_fini();
     evhttp_free(SERVER);
     event_base_free(BASE);
     event_config_free(EV_CONFIG);
@@ -712,4 +730,8 @@ static inline int process_bind_cpu(pid_t pid, int cpu) {
     CPU_ZERO(&set);
     CPU_SET(cpu, &set);
     return sched_setaffinity(pid, sizeof (cpu_set_t), &set);
+}
+
+static inline void log(hi::request& req, hi::response& res) {
+    zlog_info(LOGGER, (std::to_string(getpid()) + " " + req.client + " " + req.method + " " + req.uri + " " + req.user_agent + " " + std::to_string(res.status) + " " + std::to_string(res.content.size())).c_str());
 }

@@ -61,10 +61,12 @@
 #include "lib/datetime.hpp"
 #include "lib/cregex.hpp"
 #include "lib/gzip.hpp"
+#include "lib/zlog/zlog.h"
 
-#define PANGPANG                "pangpang/0.8.9"
+#define PANGPANG                "pangpang/0.9.0"
 #define CONFIG_FILE             "conf/pangpang.json"
 #define PATTERN_FILE            "conf/pattern.conf"
+#define ZLOG_CONFIG_FILE        "conf/zlog.conf"
 #define PID_FILE                "logs/pangpang.pid"
 #define LOGS_ACCESS_FILE        "logs/access.log"
 #define LOGS_ERROR_FILE         "logs/error.log"
@@ -84,7 +86,7 @@ namespace pangpang {
         std::shared_ptr<hi::module_class<hi::servlet>> module;
         std::shared_ptr<hi::cache::lru_cache<std::string, cache_ele_t>> cache;
         size_t expires, max_match_size;
-        bool session, gzip, header, cookie;
+        bool session, gzip, header, cookie, log;
     };
 
     struct config {
@@ -95,7 +97,8 @@ namespace pangpang {
                 ENABLE_SESSION = false,
                 ENABLE_GZIP = true,
                 ENABLE_MULTIPROCESS = true,
-                CPU_AFFINITY = true;
+                CPU_AFFINITY = true,
+                ENABLE_LOG = FALSE;
 
         int PORT = 9000, TIMEOUT = 60,
                 REDIS_PORT = 6379,

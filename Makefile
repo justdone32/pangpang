@@ -41,5 +41,6 @@ install:
 	install bin/pangpang $(PREFIX)/bin
 	install --backup conf/pangpang.json $(PREFIX)/conf
 	install --backup conf/pattern.conf $(PREFIX)/conf
+	install --backup conf/zlog.conf $(PREFIX)/conf
 	install --backup html/index.html $(PREFIX)/html
 	cp systemctl/pangpang.service /etc/systemd/system

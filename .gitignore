@@ -38,3 +38,4 @@
 /temp/*.html
 /logs/pangpang.pid
 /html/nginx.html
+/logs/*.log
